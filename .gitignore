@@ -30,3 +30,6 @@ server/data/
 *.njsproj
 *.sln
 *.sw?
+
+# Cloudflare
+.wrangler/

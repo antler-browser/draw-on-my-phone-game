@@ -15,22 +15,30 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/update-metadata.js && pnpm --filter=@meetup/shared build",
-    "dev": "pnpm --parallel --filter=@meetup/shared --filter=./client --filter=./server dev",
+    "predev": "node scripts/ensure-client-dist.js && node scripts/update-metadata.js && pnpm --filter=@meetup/shared build",
+    "dev": "concurrently \"wrangler dev --local\" \"pnpm dev:client\" --names \"worker,client\" --prefix-colors \"blue,green\"",
+    "dev:alchemy": "alchemy dev",
     "dev:client": "pnpm --filter=./client dev",
-    "dev:server": "pnpm --filter=./server dev",
-    "build": "node scripts/update-metadata.js && pnpm run --filter=@meetup/shared build && pnpm run --filter=./server build && pnpm run --filter=./client build",
+    "dev:server": "wrangler dev --local",
+    "deploy": "pnpm build && alchemy deploy",
+    "destroy": "alchemy destroy",
+    "build": "node scripts/update-metadata.js && pnpm run --filter=@meetup/shared build && pnpm run --filter=./client build",
+    "build:shared": "pnpm --filter=@meetup/shared build",
+    "build:client": "pnpm --filter=./client build",
     "db:generate": "pnpm --filter=./server db:generate",
-    "db:push": "pnpm --filter=./server db:push",
-    "db:studio": "pnpm --filter=./server db:studio"
+    "db:migrate:dev": "tsx scripts/migrate-local.ts"
   },
   "dependencies": {
     "@noble/curves": "^2.0.1",
     "base58-universal": "^2.0.0",
-    "jwt-decode": "^4.0.0",
-    "dotenv": "^17.2.3"
+    "drizzle-orm": "^0.44.7",
+    "jwt-decode": "^4.0.0"
   },
   "devDependencies": {
-    "typescript": "~5.9.3"
+    "alchemy": "0.77.0",
+    "concurrently": "^9.1.2",
+    "tsx": "^4.19.2",
+    "typescript": "~5.9.3",
+    "wrangler": "^4.46.0"
   }
 }

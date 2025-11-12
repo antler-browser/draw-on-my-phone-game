@@ -4,24 +4,20 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
+    "dev": "wrangler dev --local",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.6",
-    "@libsql/client": "^0.15.15",
     "@meetup/shared": "workspace:*",
     "drizzle-orm": "^0.44.7",
     "hono": "^4.10.4"
   },
   "devDependencies": {
-    "@types/node": "^24.6.0",
+    "@cloudflare/workers-types": "^4.20250106.0",
     "drizzle-kit": "^0.31.6",
-    "tsx": "^4.19.2",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "wrangler": "^4.46.0"
   }
 }

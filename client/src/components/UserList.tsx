@@ -56,12 +56,24 @@ function SocialIcon({ platform, handle }: SocialIconProps) {
 export function UserList({ users, onUserClick }: UserListProps) {
   if (users.length === 0) {
     return (
-      <></>
+      <div className="w-full max-w-2xl mx-auto px-6 py-16">
+        <div className="text-center space-y-4">
+          {/* <div className="text-4xl mb-6"></div> */}
+          <h2 className="text-2xl font-bold text-gray-900 mb-20">
+          🌟 Scan the QR code 🌟 
+          </h2>
+        </div>
+      </div>
     )
   }
 
   return (
     <div className="w-full max-w-2xl mx-auto">
+      <div className="text-center mb-8">
+        <h2 className="text-xl text-gray-700 mb-2">
+          Scan the QR code and see who else is here!
+        </h2>
+      </div>
       <div className="space-y-3 lg:mx-10">
         {users.map((user) => {
           return (

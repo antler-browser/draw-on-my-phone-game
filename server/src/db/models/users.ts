@@ -3,7 +3,7 @@
  */
 
 import { eq, desc, sql } from 'drizzle-orm'
-import { db } from '../client.js'
+import type { Database } from '../client.js'
 import { users, type User } from '../schema.js'
 
 // Re-export types
@@ -12,7 +12,7 @@ export type { User }
 /**
  * Get all users ordered by check-in time (most recent first)
  */
-export async function getAllUsers(): Promise<User[]> {
+export async function getAllUsers(db: Database): Promise<User[]> {
   return await db
     .select()
     .from(users)
@@ -23,7 +23,7 @@ export async function getAllUsers(): Promise<User[]> {
 /**
  * Get user by DID
  */
-export async function getUserByDID(did: string): Promise<User | undefined> {
+export async function getUserByDID(db: Database, did: string): Promise<User | undefined> {
   const [user] = await db
     .select()
     .from(users)
@@ -36,7 +36,7 @@ export async function getUserByDID(did: string): Promise<User | undefined> {
 /**
  * Delete user by DID
  */
-export async function deleteUserByDID(did: string): Promise<void> {
+export async function deleteUserByDID(db: Database, did: string): Promise<void> {
   await db
     .delete(users)
     .where(eq(users.did, did))
@@ -46,6 +46,7 @@ export async function deleteUserByDID(did: string): Promise<void> {
  * Upsert user profile (name and socials), preserves avatar on update
  */
 export async function addOrUpdateUser(
+  db: Database,
   did: string,
   name: string,
   socials: Array<{ platform: string; handle: string }>
@@ -72,7 +73,7 @@ export async function addOrUpdateUser(
 /**
  * Upsert user avatar, preserves name and socials on update
  */
-export async function addOrUpdateUserAvatar(did: string, avatar: string): Promise<User> {
+export async function addOrUpdateUserAvatar(db: Database, did: string, avatar: string): Promise<User> {
   const [user] = await db
     .insert(users)
     .values({
@@ -93,7 +94,7 @@ export async function addOrUpdateUserAvatar(did: string, avatar: string): Promis
 /**
  * Clear all users (useful for testing or resetting)
  */
-export async function deleteAllUsers(): Promise<void> {
+export async function deleteAllUsers(db: Database): Promise<void> {
   await db.delete(users)
   console.log('✅ All users deleted')
 }

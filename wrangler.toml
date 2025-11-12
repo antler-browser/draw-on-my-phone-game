@@ -1,0 +1,29 @@
+# This is used in development only (Alchemy is used for production deployments)
+
+name = "meetup-cloudflare-dev"
+main = "server/src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "meetup-cloudflare-dev-db"
+database_id = "local"
+
+# Durable Object binding
+[[durable_objects.bindings]]
+name = "DURABLE_OBJECT"
+class_name = "Broadcaster"
+script_name = "meetup-cloudflare-dev"
+
+# Durable Object migration
+[[migrations]]
+tag = "v1"
+new_classes = ["Broadcaster"]
+
+# Static assets (client build)
+# In dev: Vite serves client at :5173 (this is unused)
+# In production: Alchemy uploads these assets to Workers
+[site]
+bucket = "./client/dist"

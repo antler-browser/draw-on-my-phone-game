@@ -1,26 +1,23 @@
 /**
- * Hono server with SSE for real-time meetup user updates
+ * Cloudflare Worker with WebSocket for real-time meetup user updates
  */
 
 import { Hono } from 'hono'
-import { serve } from '@hono/node-server'
-import { serveStatic } from '@hono/node-server/serve-static'
 import { cors } from 'hono/cors'
-import { database as _ } from './db/index.js'
-import * as UserModel from './db/models/users.js'
+import type { Context } from 'hono'
+import type { Env } from './types'
+import { Broadcaster } from './durable-object'
+import { createDb } from './db/client'
+import * as UserModel from './db/models/users'
 import { decodeAndVerifyJWT } from '@meetup/shared'
-import { broadcastNewUser, broadcastUserLeft, setupSSERoute, getActiveConnectionCount } from './sse.js'
 
-const app = new Hono()
+const app = new Hono<{ Bindings: Env }>()
 
-// Enable CORS for client requests (needed in development when client runs on different port)
-// Serve static files from client build (production only)
-if (process.env.NODE_ENV !== 'production') {
-  app.use('/*', cors({
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
-    credentials: true,
-  }))
-}
+// Enable CORS for all requests
+app.use('/*', cors({
+  origin: '*',
+  credentials: true,
+}))
 
 /**
  * POST /api/add-user - Add or update user profile (without avatar)
@@ -45,15 +42,17 @@ app.post('/api/add-user', async (c) => {
       socials?: Array<{ platform: string; handle: string }>
     }
 
-    // Upsert user profile (insert if new, update if exists, preserves avatar)
+    // Create database instance and upsert user
+    const db = createDb(c.env.DB)
     const user = await UserModel.addOrUpdateUser(
+      db,
       did,
       name,
       socials ?? []
     )
 
-    // Broadcast to all SSE clients
-    broadcastNewUser(user)
+    // Broadcast to all WebSocket clients via Durable Object
+    await notifyDO(c, 'user-joined', user)
 
     return c.json(user)
   } catch (error) {
@@ -89,11 +88,12 @@ app.post('/api/add-avatar', async (c) => {
       return c.json({ error: 'No avatar data in JWT' }, 400)
     }
 
-    // Upsert avatar (insert if new, update if exists, preserves name/socials)
-    const user = await UserModel.addOrUpdateUserAvatar(did, avatar)
+    // Create database instance and upsert avatar
+    const db = createDb(c.env.DB)
+    const user = await UserModel.addOrUpdateUserAvatar(db, did, avatar)
 
-    // Broadcast to all SSE clients
-    broadcastNewUser(user)
+    // Broadcast to all WebSocket clients via Durable Object
+    await notifyDO(c, 'user-joined', user)
 
     return c.json(user)
   } catch (error) {
@@ -122,11 +122,12 @@ app.delete('/api/remove-user', async (c) => {
     const payload = await decodeAndVerifyJWT(profileJwt)
     const did = payload.iss
 
-    // Delete the user from the database
-    await UserModel.deleteUserByDID(did)
+    // Create database instance and delete user
+    const db = createDb(c.env.DB)
+    await UserModel.deleteUserByDID(db, did)
 
-    // Broadcast to all SSE clients
-    broadcastUserLeft(did)
+    // Broadcast to all WebSocket clients via Durable Object
+    await notifyDO(c, 'user-left', { did })
 
     return c.json({ success: true, did })
   } catch (error) {
@@ -143,7 +144,8 @@ app.delete('/api/remove-user', async (c) => {
  */
 app.get('/api/users', async (c) => {
   try {
-    const users = await UserModel.getAllUsers()
+    const db = createDb(c.env.DB)
+    const users = await UserModel.getAllUsers(db)
     return c.json({ users })
   } catch (error) {
     console.error('Error fetching users:', error)
@@ -154,8 +156,42 @@ app.get('/api/users', async (c) => {
   }
 })
 
-// Setup SSE endpoint
-setupSSERoute(app)
+/**
+ * Helper function to notify Durable Object about user changes
+ */
+async function notifyDO(c: Context<{ Bindings: Env }>, event: string, data: any): Promise<void> {
+  try {
+    const id = c.env.DURABLE_OBJECT.idFromName('default')
+    const stub = c.env.DURABLE_OBJECT.get(id)
+    await stub.fetch(new Request('http://do/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event, data }),
+    }))
+  } catch (err) {
+    console.error('Error notifying Durable Object:', err)
+  }
+}
+
+/**
+ * GET /api/ws - WebSocket endpoint for real-time updates
+ * Forwards to Durable Object for connection management
+ */
+app.get('/api/ws', async (c) => {
+  const upgradeHeader = c.req.header('Upgrade')
+
+  if (upgradeHeader !== 'websocket') {
+    return c.text('Expected WebSocket upgrade', 426)
+  }
+
+  // Forward WebSocket upgrade to Durable Object
+  const id = c.env.DURABLE_OBJECT.idFromName('default')
+  const stub = c.env.DURABLE_OBJECT.get(id)
+
+  return stub.fetch(new Request('http://do/ws', {
+    headers: c.req.raw.headers,
+  }))
+})
 
 /**
  * GET /health - Health check endpoint
@@ -164,22 +200,15 @@ app.get('/health', (c) => {
   return c.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    activeSSEConnections: getActiveConnectionCount(),
   })
 })
 
-// Serve static files from client build (production only)
-if (process.env.NODE_ENV === 'production') {
-  app.use('/*', serveStatic({ root: './client/dist' }))
-  app.get('/*', serveStatic({ path: './client/dist/index.html' }))
+// Export Durable Object
+export { Broadcaster }
+
+// Export Worker fetch handler
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return app.fetch(request, env, ctx)
+  },
 }
-
-// Start the server
-const port = 3000
-console.log(`🚀 Hono server running on http://localhost:${port}`)
-console.log(`📡 SSE endpoint: http://localhost:${port}/api/sse`)
-
-serve({
-  fetch: app.fetch,
-  port,
-})

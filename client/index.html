@@ -6,6 +6,24 @@
     <link rel="irl-manifest" href="/irl-manifest.json" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Welcome to ZSpace</title>
+    <script>
+      // Dynamically generate Smart App Banner with current page URL
+      (function() {
+        // Get current page URL
+        const currentUrl = window.location.href;
+
+        // URL-encode the current URL
+        const encodedUrl = encodeURIComponent(currentUrl);
+
+        // Create meta tag
+        const meta = document.createElement('meta');
+        meta.name = 'apple-itunes-app';
+        meta.content = `app-id=6753969350, app-argument=https://antlerbrowser.com/open/${encodedUrl}`;
+
+        // Add to head
+        document.head.appendChild(meta);
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>
