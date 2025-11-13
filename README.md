@@ -59,9 +59,21 @@ This app deploys entirely to Cloudflare using:
 - **Cloudflare Durable Objects** for WebSocket broadcasting
 - **Alchemy SDK** for infrastructure-as-code
 
-> **Prerequisites:** Cloudflare account (free tier works!) and authenticated Wrangler CLI (`wrangler login`)
+> **Prerequisites:** 
+- Cloudflare account (free tier works!)
+- Alchemy CLI installed (`brew install alchemy`)
+
+**Note:** Alchemy stores the state of the deployment inside `.alchemy/state.json`. It is created after the first deployment. You can store this file locally, but we have added it to the `.gitignore` file to avoid committing it to the repository. We have configured Alchemy to store the state of the deployment inside a Cloudflare Durable Object, see `alchemy.run.ts` for more details.
+
+Configure Cloudflare API token in Alchemy (see [Alchemy CLI Documentation](https://alchemy.run/docs/cli/configuration)):
+```bash
+alchemy configure
+```
+
+Copy `.env.example` to `.env` and update `ALCHEMY_STATE_TOKEN`. This is used to store the state of the deployment in a remote state store.
+
 
 To deploy the app:
 ```bash
-pnpm run deploy
+pnpm run deploy:cloudflare
 ```

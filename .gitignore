@@ -33,3 +33,4 @@ server/data/
 
 # Cloudflare
 .wrangler/
+.alchemy/

@@ -8,12 +8,14 @@
  */
 
 import alchemy from 'alchemy'
-import { D1Database, DurableObjectNamespace, Worker } from 'alchemy/cloudflare'
+import { Assets, D1Database, DurableObjectNamespace, Worker } from 'alchemy/cloudflare'
+import { CloudflareStateStore } from 'alchemy/state'
 import type { Broadcaster } from './server/src/durable-object'
 
-// Initialize Alchemy app
-const app = await alchemy('meetup-irl')
-const durableObjectName = 'Broadcaster'
+// Initialize Alchemy app with remote state store
+const app = await alchemy('meetup-irl', {
+  stateStore: (scope) => new CloudflareStateStore(scope),
+})
 
 /**
  * D1 Database
@@ -26,11 +28,19 @@ const database = await D1Database('database', {
 })
 
 /**
+ * Static Assets
+ * Client build directory containing the React app
+ */
+const staticAssets = await Assets({
+  path: './client/dist',
+})
+
+/**
  * Durable Object Namespace
  * Manages real-time WebSocket connections for broadcasting user updates
  */
+const durableObjectName = 'Broadcaster'
 const durableObject = DurableObjectNamespace<Broadcaster>(durableObjectName, {
-  namespaceId: `${app.name}-${app.stage}-do`,
   className: durableObjectName,
   sqlite: true,
 })
@@ -38,7 +48,6 @@ const durableObject = DurableObjectNamespace<Broadcaster>(durableObjectName, {
 /**
  * Cloudflare Worker
  * Handles API routes, WebSocket upgrades, and serves static client assets
- * Note: Static assets configured via wrangler.toml [site] section
  */
 export const worker = await Worker('worker', {
   name: `${app.name}-${app.stage}`,
@@ -46,6 +55,11 @@ export const worker = await Worker('worker', {
   bindings: {
     DB: database,
     DURABLE_OBJECT: durableObject,
+    ASSETS: staticAssets,
+  },
+  assets: {
+    html_handling: 'auto-trailing-slash',
+    not_found_handling: 'single-page-application',
   },
   url: true,
 })

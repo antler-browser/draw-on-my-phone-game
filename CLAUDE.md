@@ -63,12 +63,10 @@ pnpm install              # Install all workspace dependencies
 pnpm run dev              # Start both Wrangler dev server and client in parallel (runs predev hook first)
 pnpm run dev:client       # Start only client dev server
 pnpm run dev:server       # Start only Wrangler dev server (Cloudflare Workers local mode)
-pnpm run dev:alchemy      # Alternative dev command using Alchemy
 pnpm run build            # Build shared package, then client
-pnpm run build:shared     # Build only shared package
 pnpm run build:client     # Build only client package
-pnpm run deploy           # Deploy to Cloudflare (via Alchemy)
-pnpm run destroy          # Destroy Alchemy deployment
+pnpm run deploy:cloudflare  # Deploy to Cloudflare using Alchemy
+pnpm run destroy:cloudflare # Destroy Cloudflare deployment using Alchemy
 ```
 
 ### Database Commands
@@ -84,7 +82,7 @@ pnpm db:studio            # Open Drizzle Studio for database inspection (from /s
 1. **Edit schema** in `/server/src/db/schema.ts`
 2. **Generate migration**: `pnpm db:generate` (uses `drizzle.config.js` to read schema)
 3. **Apply locally**: `pnpm db:migrate:dev` (runs `migrate-local.ts` which uses `getPlatformProxy()`)
-4. **Deploy to production**: `pnpm run deploy` (Alchemy automatically applies migrations via `alchemy.run.ts`)
+4. **Deploy to production**: `pnpm run deploy:cloudflare` (Alchemy automatically applies migrations via `alchemy.run.ts`)
 
 **Note**: For production, Alchemy reads the `migrationsDir` setting and applies any new migrations during deployment.
 
@@ -155,9 +153,8 @@ This project uses [Alchemy](https://alchemy.run) for deployment to Cloudflare Wo
 
 ### Deployment Commands
 ```bash
-pnpm run deploy           # Deploy to Cloudflare
-pnpm run destroy          # Destroy Alchemy deployment
-pnpm run dev:alchemy      # Run local dev server using Alchemy (alternative to Wrangler)
+pnpm run deploy:cloudflare  # Deploy to Cloudflare
+pnpm run destroy:cloudflare # Destroy Alchemy deployment
 ```
 
 No manual migration steps needed - everything is handled by `alchemy.run.ts` configuration.

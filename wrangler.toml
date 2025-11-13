@@ -25,5 +25,5 @@ new_classes = ["Broadcaster"]
 # Static assets (client build)
 # In dev: Vite serves client at :5173 (this is unused)
 # In production: Alchemy uploads these assets to Workers
-[site]
-bucket = "./client/dist"
+# [site]
+# bucket = "./client/dist"
