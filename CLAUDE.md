@@ -112,7 +112,7 @@ The app uses a **single Durable Object instance** (`idFromName: 'default'`) for 
 1. **Client connects**: WebSocket upgrade request → Worker → Durable Object
 2. **User checks in**: POST `/api/add-user` → Worker verifies JWT → Saves to D1 → Notifies DO
 3. **Broadcast**: Durable Object sends WebSocket message to all connected clients
-4. **Auto-shutdown**: DO closes after 2 hours of inactivity
+4. **Auto-eviction**: Cloudflare automatically evicts DO when all connections close
 
 ### WebSocket Message Types
 
@@ -122,7 +122,6 @@ WebSocket message types are defined inline in `/server/src/durable-object.ts` an
 - `connected` - Initial connection confirmation
 - `user-joined` - New user or updated user profile
 - `user-left` - User removed from meetup
-- `meetup-ended` - Event ended (idle or time limit)
 
 ### JWT Verification Pipeline (`/shared/src/jwt.ts`)
 The shared package exports `decodeAndVerifyJWT` which is used by both client and server to verify cryptographically signed user data from the IRL Browser.
