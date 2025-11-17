@@ -1,9 +1,8 @@
 {
-  "name": "Welcome to ZSpace",
-  "description": "An app for seeing who else is at at ZSpace.",
-  "location": "123 Main St, Vancouver, BC",
+  "name": "Draw on my phone",
+  "description": "Draw, guess, and laugh! A party game for artists and wanna-be artists.",
   "icon": "./antler-icon.webp",
-  "type": "event",
+  "type": "game",
   "permissions": [
     "profile"
   ]

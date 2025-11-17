@@ -1,6 +1,6 @@
 /**
  * Utility to decode and verify JWTs from IRL Browser using jwt-decode and @noble/ed25519
- * Based on the IRL Browser Standard specification
+ * Based on the IRL Browser Specification specification
  */
 
 import { jwtDecode } from 'jwt-decode'

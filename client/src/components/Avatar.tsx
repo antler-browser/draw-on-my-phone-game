@@ -40,7 +40,7 @@ export function Avatar({ avatar, name, size = 'lg' }: AvatarProps) {
         </div>
       ) : (
         <div className={wrapperClass}>
-          <div className={`${classes.container} rounded-full ${size === 'lg' ? 'mx-auto' : ''} shadow-lg ${classes.border} border-white bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center ${classes.text} text-white`}>
+          <div className={`${classes.container} rounded-full ${size === 'lg' ? 'mx-auto' : ''} shadow-md ${classes.border} border-white bg-rose-800 flex items-center justify-center ${classes.text} text-white font-bold`}>
             {name?.charAt(0).toUpperCase() || ''}
           </div>
         </div>

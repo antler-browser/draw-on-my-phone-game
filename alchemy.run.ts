@@ -1,25 +1,25 @@
 /**
- * Alchemy Configuration for Meetup Mini-App
+ * Alchemy Configuration for draw-on-my-phone Game
  *
- * Deploys the meetup mini-app to Cloudflare:
- * - D1 Database for user storage
- * - Durable Object for real-time WebSocket broadcasting
+ * Deploys the draw-on-my-phone game to Cloudflare:
+ * - D1 Database for game and player storage
+ * - Durable Object for real-time WebSocket game rooms (one per game)
  * - Worker for API and static asset serving
  */
 
 import alchemy from 'alchemy'
 import { Assets, D1Database, DurableObjectNamespace, Worker } from 'alchemy/cloudflare'
 import { CloudflareStateStore } from 'alchemy/state'
-import type { Broadcaster } from './server/src/durable-object'
+import type { GameRoom } from './server/src/durable-object'
 
 // Initialize Alchemy app with remote state store
-const app = await alchemy('meetup-irl', {
+const app = await alchemy('draw-on-my-phone-game', {
   stateStore: (scope) => new CloudflareStateStore(scope),
 })
 
 /**
  * D1 Database
- * Stores meetup attendee information
+ * Stores game rooms, players, and submissions
  */
 const database = await D1Database('database', {
   name: `${app.name}-${app.stage}-db`,
@@ -37,10 +37,10 @@ const staticAssets = await Assets({
 
 /**
  * Durable Object Namespace
- * Manages real-time WebSocket connections for broadcasting user updates
+ * Manages real-time WebSocket connections for game rooms (one per game)
  */
-const durableObjectName = 'Broadcaster'
-const durableObject = DurableObjectNamespace<Broadcaster>(durableObjectName, {
+const durableObjectName = 'GameRoom'
+const durableObject = DurableObjectNamespace<GameRoom>(durableObjectName, {
   className: durableObjectName,
   sqlite: true,
 })
@@ -54,7 +54,7 @@ export const worker = await Worker('worker', {
   entrypoint: './server/src/index.ts',
   bindings: {
     DB: database,
-    DURABLE_OBJECT: durableObject,
+    GAME_ROOM: durableObject,
     ASSETS: staticAssets,
   },
   assets: {

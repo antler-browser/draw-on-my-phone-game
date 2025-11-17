@@ -1,6 +1,6 @@
 # This is used in development only (Alchemy is used for production deployments)
 
-name = "meetup-cloudflare-dev"
+name = "draw-on-my-phone-game-dev"
 main = "server/src/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
@@ -8,19 +8,19 @@ compatibility_flags = ["nodejs_compat"]
 # D1 Database binding
 [[d1_databases]]
 binding = "DB"
-database_name = "meetup-cloudflare-dev-db"
+database_name = "draw-on-my-phone-game-dev-db"
 database_id = "local"
 
-# Durable Object binding
+# Durable Object binding (one per game room)
 [[durable_objects.bindings]]
-name = "DURABLE_OBJECT"
-class_name = "Broadcaster"
-script_name = "meetup-cloudflare-dev"
+name = "GAME_ROOM"
+class_name = "GameRoom"
+script_name = "draw-on-my-phone-game-dev"
 
 # Durable Object migration
 [[migrations]]
 tag = "v1"
-new_classes = ["Broadcaster"]
+new_classes = ["GameRoom"]
 
 # Static assets (client build)
 # In dev: Vite serves client at :5173 (this is unused)

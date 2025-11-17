@@ -1,15 +1,18 @@
 /**
- * Cloudflare Worker with WebSocket for real-time meetup user updates
+ * Cloudflare Worker for draw-on-my-phone game
+ * Handles REST API for game operations and WebSocket connections via Durable Objects
  */
 
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { Context } from 'hono'
 import type { Env } from './types'
-import { Broadcaster } from './durable-object'
+import { GameRoom } from './durable-object'
 import { createDb } from './db/client'
-import * as UserModel from './db/models/users'
-import { decodeAndVerifyJWT } from '@meetup/shared'
+import * as GameModel from './db/models/games'
+import * as PlayerModel from './db/models/players'
+import * as SubmissionModel from './db/models/submissions'
+import { decodeAndVerifyJWT, getTaskType, isGameComplete } from '@meetup/shared'
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -20,11 +23,128 @@ app.use('/*', cors({
 }))
 
 /**
- * POST /api/add-user - Add or update user profile (without avatar)
- * Preserves existing avatar if user already exists
+ * POST /api/game/create - Create a new game (for TV display)
+ * No authentication required - first player to join becomes host
  */
-app.post('/api/add-user', async (c) => {
+app.post('/api/game/create', async (c) => {
   try {
+    const body = await c.req.json()
+    const { timerDuration = 60 } = body
+
+    // Create database instance and create game
+    const db = createDb(c.env.DB)
+
+    // Create game with no host (hostDid = null)
+    // First player to join will become the host
+    const game = await GameModel.createGame(db, null, timerDuration)
+
+    return c.json({
+      gameId: game.id,
+      game,
+      players: [], // No players yet - game created on TV
+    })
+  } catch (error) {
+    console.error('Create game error:', error)
+    return c.json(
+      { error: 'Failed to create game', message: (error as Error).message },
+      500
+    )
+  }
+})
+
+/**
+ * POST /api/game/:id/join - Join an existing game
+ * Requires profileJwt for player authentication
+ */
+app.post('/api/game/:id/join', async (c) => {
+  try {
+    const gameId = c.req.param('id')
+    const body = await c.req.json()
+    const { profileJwt, avatarJwt } = body
+
+    if (!profileJwt) {
+      return c.json({ error: 'Missing profileJwt' }, 400)
+    }
+
+    // Verify and decode the profile JWT
+    const profilePayload = await decodeAndVerifyJWT(profileJwt)
+    const avatarPayload = await decodeAndVerifyJWT(avatarJwt)
+
+    // Extract profile data
+    const { did, name } = profilePayload.data as {
+      did: string
+      name: string
+    }
+
+    const avatar = avatarPayload.data.avatar || null
+
+    // Create database instance
+    const db = createDb(c.env.DB)
+
+    const game = await GameModel.getGameById(db, gameId)
+
+    if (!game) { // Check if game exists
+      return c.json({ error: 'Game not found' }, 404)
+    }
+
+    // Check if player already exists in this game (idempotent join)
+    const existingPlayer = await PlayerModel.getPlayerByDid(db, gameId, did)
+
+    if (existingPlayer) {
+      // Player already joined - return existing player data
+      return c.json({ success: true, player: existingPlayer, alreadyJoined: true })
+    }
+
+    if (game.status !== 'lobby') { // If you are not an existing player, you can't join the game after it has started
+      return c.json({ error: 'Cannot join game in progress' }, 400)
+    }
+
+    // Add new player (unique constraint on gameId+did prevents duplicates)
+    const playerCount = await PlayerModel.countPlayers(db, gameId)
+    const player = await PlayerModel.addPlayer(
+      db,
+      gameId,
+      did,
+      name,
+      avatar,
+      playerCount
+    )
+
+    // If this is the first player, make them the host
+    if (playerCount === 0) {
+      await GameModel.updateGame(db, gameId, {
+        hostDid: did,
+        totalPlayers: 1,
+        updatedAt: Math.floor(Date.now() / 1000)
+      })
+    } else {
+      // Update game with new player count
+      await GameModel.updateGame(db, gameId, {
+        totalPlayers: playerCount + 1,
+        updatedAt: Math.floor(Date.now() / 1000)
+      })
+    }
+
+    // Notify all clients that a player has joined the game
+    await notifyGameRoom(c, gameId, 'player_joined')
+
+    return c.json({ success: true, player, alreadyJoined: false })
+  } catch (error) {
+    console.error('Join game error:', error)
+    return c.json(
+      { error: 'Failed to join game', message: (error as Error).message },
+      500
+    )
+  }
+})
+
+/**
+ * POST /api/game/:id/start - Start the game (host only)
+ * Requires profileJwt to verify host
+ */
+app.post('/api/game/:id/start', async (c) => {
+  try {
+    const gameId = c.req.param('id')
     const body = await c.req.json()
     const { profileJwt } = body
 
@@ -34,148 +154,182 @@ app.post('/api/add-user', async (c) => {
 
     // Verify and decode the profile JWT
     const profilePayload = await decodeAndVerifyJWT(profileJwt)
+    const did = profilePayload.iss
 
-    // Extract profile data
-    const { did, name, socials } = profilePayload.data as {
-      did: string
-      name: string
-      socials?: Array<{ platform: string; handle: string }>
+    // Create database instance
+    const db = createDb(c.env.DB)
+
+    // Check if game exists
+    const game = await GameModel.getGameById(db, gameId)
+    if (!game) {
+      return c.json({ error: 'Game not found' }, 404)
     }
 
-    // Create database instance and upsert user
-    const db = createDb(c.env.DB)
-    const user = await UserModel.addOrUpdateUser(
-      db,
-      did,
-      name,
-      socials ?? []
-    )
+    // Check if host is assigned (should be set when first player joins)
+    if (!game.hostDid) {
+      return c.json({ error: 'No host assigned yet - waiting for first player to join' }, 400)
+    }
 
-    // Broadcast to all WebSocket clients via Durable Object
-    await notifyDO(c, 'user-joined', user)
+    // Verify caller is the host
+    if (game.hostDid !== did) {
+      return c.json({ error: 'Only the host can start the game' }, 403)
+    }
 
-    return c.json(user)
+    if (game.status !== 'lobby') { // Check game status
+      return c.json({ error: 'Game has already started' }, 400)
+    }else if (!game.totalPlayers || game.totalPlayers < 3) { // Check if game has enough players
+      return c.json({ error: 'Need at least 3 players to start' }, 400)
+    }
+
+    // Start the game
+    await GameModel.startGame(db, gameId)
+
+    // Notify Durable Object to load immutable data and broadcast
+    await notifyGameRoom(c, gameId, 'game_started')
+
+    return c.json({ success: true })
   } catch (error) {
-    console.error('Add user error:', error)
+    console.error('Start game error:', error)
     return c.json(
-      { error: 'Failed to add user', message: (error as Error).message },
+      { error: 'Failed to start game', message: (error as Error).message },
       500
     )
   }
 })
 
 /**
- * POST /api/add-avatar - Add or update user avatar
- * Creates user with avatar only if doesn't exist yet
+ * POST /api/game/:id/submit - Submit word/drawing/guess
+ * Requires profileJwt for player authentication
  */
-app.post('/api/add-avatar', async (c) => {
+app.post('/api/game/:id/submit', async (c) => {
   try {
+    const gameId = c.req.param('id')
     const body = await c.req.json()
-    const { avatarJwt } = body
-
-    if (!avatarJwt) {
-      return c.json({ error: 'Missing avatarJwt' }, 400)
-    }
-
-    // Verify and decode the avatar JWT
-    const avatarPayload = await decodeAndVerifyJWT(avatarJwt)
-
-    // Extract DID from issuer and avatar from data
-    const did = avatarPayload.iss
-    const { avatar } = avatarPayload.data as { avatar: string }
-
-    if (!avatar) {
-      return c.json({ error: 'No avatar data in JWT' }, 400)
-    }
-
-    // Create database instance and upsert avatar
-    const db = createDb(c.env.DB)
-    const user = await UserModel.addOrUpdateUserAvatar(db, did, avatar)
-
-    // Broadcast to all WebSocket clients via Durable Object
-    await notifyDO(c, 'user-joined', user)
-
-    return c.json(user)
-  } catch (error) {
-    console.error('Add avatar error:', error)
-    return c.json(
-      { error: 'Failed to add avatar', message: (error as Error).message },
-      500
-    )
-  }
-})
-
-/**
- * DELETE /api/remove-user - Remove user from meetup
- * Requires JWT verification to ensure user is removing themselves
- */
-app.delete('/api/remove-user', async (c) => {
-  try {
-    const body = await c.req.json()
-    const { profileJwt } = body
+    const { profileJwt, chainOwnerDid, type } = body
 
     if (!profileJwt) {
       return c.json({ error: 'Missing profileJwt' }, 400)
     }
 
-    // Verify and decode the JWT to get the user's DID
-    const payload = await decodeAndVerifyJWT(profileJwt)
-    const did = payload.iss
+    if (!chainOwnerDid || !type) {
+      return c.json({ error: 'Missing chainOwnerDid or type' }, 400)
+    }
 
-    // Create database instance and delete user
+    // Verify and decode the profile JWT
+    const profilePayload = await decodeAndVerifyJWT(profileJwt)
+    const submitterDid = profilePayload.iss
+
+    // Create database instance
     const db = createDb(c.env.DB)
-    await UserModel.deleteUserByDID(db, did)
 
-    // Broadcast to all WebSocket clients via Durable Object
-    await notifyDO(c, 'user-left', { did })
+    // Get current game state
+    const game = await GameModel.getGameById(db, gameId)
+    if (!game) {
+      return c.json({ error: 'Game not found' }, 404)
+    }
 
-    return c.json({ success: true, did })
+    if (game.status !== 'playing') {
+      return c.json({ error: 'Game not in progress' }, 400)
+    }
+
+    // Validate submission type matches expected task type
+    const expectedTaskType = getTaskType(game.currentRound, game.totalPlayers || 0)
+    if (type !== expectedTaskType) {
+      return c.json({
+        error: `Invalid submission type. Expected ${expectedTaskType}, got ${type}`
+      }, 400)
+    }
+
+    // Check if player already submitted for this round
+    const existingSubmission = await SubmissionModel.getSubmissionBySubmitter(
+      db,
+      gameId,
+      game.currentRound,
+      submitterDid
+    )
+
+    if (existingSubmission) {
+      return c.json({ error: 'Already submitted for this round' }, 400)
+    }
+
+    // Create submission (content stored locally on device, not in database)
+    await SubmissionModel.createSubmission(db, {
+      gameId,
+      chainOwnerDid,
+      round: game.currentRound,
+      submitterDid,
+      type,
+      createdAt: Math.floor(Date.now() / 1000)
+    })
+
+    // Check if round is complete (all players submitted)
+    const submissionCount = await SubmissionModel.countSubmissionsByGameAndRound(
+      db,
+      gameId,
+      game.currentRound
+    )
+
+    if (submissionCount === game.totalPlayers) {
+      // All players submitted - advance round or finish game
+      const nextRound = game.currentRound + 1
+
+      if (isGameComplete(nextRound, game.totalPlayers || 0)) {
+        // Game is complete
+        await GameModel.updateGame(db, gameId, {
+          status: 'finished',
+          updatedAt: Math.floor(Date.now() / 1000)
+        })
+        await notifyGameRoom(c, gameId, 'game_ended')
+      } else {
+        // Advance to next round
+        const now = Math.floor(Date.now() / 1000)
+        await GameModel.updateGame(db, gameId, {
+          currentRound: nextRound,
+          roundStartTime: now,
+          updatedAt: now
+        })
+        await notifyGameRoom(c, gameId, 'round_advanced')
+      }
+    } else {
+      // Just one submission - broadcast without advancing round
+      await notifyGameRoom(c, gameId, 'submission_received')
+    }
+
+    return c.json({ success: true })
   } catch (error) {
-    console.error('Remove user error:', error)
+    console.error('Submit error:', error)
     return c.json(
-      { error: 'Failed to remove user', message: (error as Error).message },
+      { error: 'Failed to submit', message: (error as Error).message },
       500
     )
   }
 })
 
 /**
- * GET /api/users - Get all users
+ * Helper function to notify Durable Object (GameRoom) about game changes
  */
-app.get('/api/users', async (c) => {
+async function notifyGameRoom(
+  c: Context<{ Bindings: Env }>,
+  gameId: string,
+  action: string
+): Promise<void> {
   try {
-    const db = createDb(c.env.DB)
-    const users = await UserModel.getAllUsers(db)
-    return c.json({ users })
-  } catch (error) {
-    console.error('Error fetching users:', error)
-    return c.json(
-      { error: 'Failed to fetch users', message: (error as Error).message },
-      500
-    )
-  }
-})
+    const doId = c.env.GAME_ROOM.idFromName(`game:${gameId}`)
+    const gameRoom = c.env.GAME_ROOM.get(doId)
 
-/**
- * Helper function to notify Durable Object about user changes
- */
-async function notifyDO(c: Context<{ Bindings: Env }>, event: string, data: any): Promise<void> {
-  try {
-    const id = c.env.DURABLE_OBJECT.idFromName('default')
-    const stub = c.env.DURABLE_OBJECT.get(id)
-    await stub.fetch(new Request('http://do/broadcast', {
+    await gameRoom.fetch(new Request(`http://do/${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event, data }),
+      body: JSON.stringify({ gameId }),
     }))
   } catch (err) {
-    console.error('Error notifying Durable Object:', err)
+    console.error('Error notifying GameRoom:', err)
   }
 }
 
 /**
- * GET /api/ws - WebSocket endpoint for real-time updates
- * Forwards to Durable Object for connection management
+ * GET /api/ws - WebSocket endpoint for real-time game updates
+ * Forwards to game-specific Durable Object
  */
 app.get('/api/ws', async (c) => {
   const upgradeHeader = c.req.header('Upgrade')
@@ -184,11 +338,19 @@ app.get('/api/ws', async (c) => {
     return c.text('Expected WebSocket upgrade', 426)
   }
 
-  // Forward WebSocket upgrade to Durable Object
-  const id = c.env.DURABLE_OBJECT.idFromName('default')
-  const stub = c.env.DURABLE_OBJECT.get(id)
+  // Get gameId from query params
+  const url = new URL(c.req.url)
+  const gameId = url.searchParams.get('gameId')
 
-  return stub.fetch(new Request('http://do/ws', {
+  if (!gameId) {
+    return c.text('Missing gameId parameter', 400)
+  }
+
+  // Forward WebSocket upgrade to game-specific Durable Object
+  const doId = c.env.GAME_ROOM.idFromName(`game:${gameId}`)
+  const gameRoom = c.env.GAME_ROOM.get(doId)
+
+  return gameRoom.fetch(new Request(`http://do/ws?gameId=${gameId}`, {
     headers: c.req.raw.headers,
   }))
 })
@@ -204,7 +366,7 @@ app.get('/health', (c) => {
 })
 
 // Export Durable Object
-export { Broadcaster }
+export { GameRoom }
 
 // Export Worker fetch handler
 export default {

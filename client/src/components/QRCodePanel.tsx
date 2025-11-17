@@ -8,7 +8,7 @@ export function QRCodePanel({ url }: QRCodePanelProps) {
   const qrUrl = url || window.location.href;
 
   return (
-    <div className="hidden md:flex flex-col items-center justify-center bg-gradient-to-br from-indigo-100 to-purple-100 p-8">
+    <div className="hidden md:flex flex-col items-center justify-center p-8">
       <div className="flex justify-center items-end mb-6 relative" style={{ width: '272px', height: '112px' }}>
         <img
           src="/antler-1.png"

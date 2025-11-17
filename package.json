@@ -15,13 +15,13 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/ensure-client-dist.js && node scripts/update-metadata.js && pnpm --filter=@meetup/shared build",
+    "predev": "node scripts/ensure-client-dist.js && pnpm --filter=@meetup/shared build",
     "dev": "concurrently \"wrangler dev --local\" \"pnpm dev:client\" --names \"worker,client\" --prefix-colors \"blue,green\"",
     "dev:client": "pnpm --filter=./client dev",
     "dev:server": "wrangler dev --local",
     "deploy:cloudflare": "pnpm build && alchemy deploy",
     "destroy:cloudflare": "alchemy destroy",
-    "build": "node scripts/update-metadata.js && pnpm run --filter=@meetup/shared build && pnpm run --filter=./client build",
+    "build": "pnpm run --filter=@meetup/shared build && pnpm run --filter=./client build",
     "build:client": "pnpm --filter=./client build",
     "db:generate": "pnpm --filter=./server db:generate",
     "db:migrate:dev": "tsx scripts/migrate-local.ts"
