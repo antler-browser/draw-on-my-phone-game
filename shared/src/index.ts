@@ -29,6 +29,7 @@ export type {
 export {
   getTaskType,
   getChainOwnerPosition,
+  getCurrentHolderPosition,
   getNextChainHolder,
   isGameComplete,
   getTotalRounds,

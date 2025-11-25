@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import CanvasDraw from 'react-canvas-draw'
-import { useGameStore, selectMyChain, selectCurrentRound } from '../stores/gameStore'
+import { useGameStore, selectMyChain, selectCurrentRound, selectPlayers } from '../stores/gameStore'
+import { getCurrentHolderPosition, getNextChainHolder } from '@internal/shared'
 import { GameTimer } from './GameTimer'
+import { Avatar } from './Avatar'
 
 /**
  * GuessView component
@@ -20,7 +22,43 @@ export function GuessView() {
   const myChain = useGameStore(selectMyChain)
   const currentRound = useGameStore(selectCurrentRound)
   const myDid = useGameStore(state => state.myDid)
+  const players = useGameStore(selectPlayers)
   const getDrawing = useGameStore(state => state.getDrawing)
+
+  // Calculate who is currently holding this chain (the actual contributor)
+  // myDid is the device owner (chain owner), but someone else may be using the phone
+  const getCurrentHolder = () => {
+    const chainOwner = players.find(p => p.did === myDid)
+    if (!chainOwner || players.length === 0) return null
+
+    // Use shared game logic to account for Round 1 no-rotation for even players
+    const currentHolderPosition = getCurrentHolderPosition(
+      chainOwner.turnPosition,
+      currentRound,
+      players.length
+    )
+    return players.find(p => p.turnPosition === currentHolderPosition) || null
+  }
+
+  const currentHolder = getCurrentHolder()
+  const getCurrentHolderDid = (): string => currentHolder?.did || myDid
+
+  // Calculate who should receive the phone next
+  const getNextPlayer = () => {
+    const chainOwner = players.find(p => p.did === myDid)
+    if (!chainOwner || players.length === 0) return null
+
+    // Use shared game logic to get current holder position
+    const currentHolderPosition = getCurrentHolderPosition(
+      chainOwner.turnPosition,
+      currentRound,
+      players.length
+    )
+    const nextHolderPosition = getNextChainHolder(currentHolderPosition, players.length)
+    return players.find(p => p.turnPosition === nextHolderPosition) || null
+  }
+
+  const nextPlayer = getNextPlayer()
 
   const [guess, setGuess] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -99,22 +137,27 @@ export function GuessView() {
 
     setIsSubmitting(true)
 
-    try {
-      // Save guess to localStorage
-      useGameStore.getState().saveSubmission(
-        gameState.gameId,
-        gameState.currentRound,
-        'guess',
-        finalGuess,
-        myDid
-      )
+    // Save guess to localStorage (always succeeds)
+    // Use the calculated current holder (the person actually guessing), not the device owner
+    useGameStore.getState().saveSubmission(
+      gameState.gameId,
+      gameState.currentRound,
+      'guess',
+      finalGuess,
+      getCurrentHolderDid()
+    )
 
-      // Get JWT from IRL Browser
-      const jwt = await window.irlBrowser?.getProfileDetails()
-      if (!jwt) throw new Error('Failed to get profile JWT')
+    // Immediately mark as submitted (optimistic UI)
+    setHasSubmitted(true)
 
-      // Notify server of completion (no content sent)
-      const response = await fetch(`/api/game/${gameState.gameId}/submit`, {
+    // Fire-and-forget POST to server (best-effort, don't wait)
+    window.irlBrowser?.getProfileDetails().then(jwt => {
+      if (!jwt) {
+        console.log('No JWT available for submission POST')
+        return
+      }
+
+      fetch(`/api/game/${gameState.gameId}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -123,18 +166,12 @@ export function GuessView() {
           type: 'guess',
           round: gameState.currentRound,
         }),
+      }).catch(err => {
+        console.log('Guess submission POST failed (content saved locally):', err)
       })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to submit guess')
-      }
-
-      setHasSubmitted(true)
-    } catch (error) {
-      console.error('Submit guess error:', error)
-      setIsSubmitting(false)
-    }
+    }).catch(err => {
+      console.log('Failed to get JWT for submission POST:', err)
+    })
   }
 
   const handleTimerExpire = () => {
@@ -149,6 +186,19 @@ export function GuessView() {
       <div className="flex flex-col items-center justify-center h-screen overflow-y-auto bg-gray-50 p-6 landscape:p-3">
         <div className="bg-white rounded-xl shadow-md p-8 landscape:p-4 max-w-md w-full text-center">
           <h2 className="text-2xl landscape:text-xl font-bold text-gray-800 mb-2">Guess Submitted</h2>
+
+          {nextPlayer && (
+            <div className="my-4">
+              <p className="text-gray-600 landscape:text-sm mb-3">Pass your phone to:</p>
+              <div className="flex flex-col items-center">
+                <Avatar avatar={nextPlayer.avatar} name={nextPlayer.name} size="md" />
+                <p className="mt-2 text-lg font-bold text-gray-800">
+                  {nextPlayer.name || 'Next Player'}
+                </p>
+              </div>
+            </div>
+          )}
+
           <p className="text-gray-600 landscape:text-sm">Waiting for other players...</p>
           <div className="mt-6 landscape:mt-4 animate-pulse">
             <div className="h-2 bg-rose-200 rounded-full"></div>
@@ -162,7 +212,12 @@ export function GuessView() {
     <div ref={containerRef} className="flex flex-col items-center justify-center h-screen overflow-y-auto bg-gray-50 p-6 landscape:p-2">
       <div ref={cardRef} className="bg-white rounded-xl shadow-md p-6 landscape:p-3 w-full">
         <div ref={headerRef} className="flex items-center justify-between mb-4 landscape:mb-2">
-          <h2 className="text-2xl landscape:text-lg font-bold text-gray-800">What is this?</h2>
+          <div className="flex items-center gap-2">
+            {currentHolder && <Avatar avatar={currentHolder.avatar} name={currentHolder.name} size="sm" />}
+            <h2 className="text-xl landscape:text-lg font-bold text-gray-800">
+              {currentHolder?.name ? `${currentHolder.name}'s turn to Guess!` : 'What is this?'}
+            </h2>
+          </div>
           <GameTimer onExpire={handleTimerExpire} />
         </div>
 

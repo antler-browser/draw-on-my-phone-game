@@ -72,23 +72,32 @@ export function ChainReveal({ chainOwnerDid, onBackToHome }: ChainRevealProps) {
     )
   }
 
+  // Extract the first word submission for the header
+  const firstWordSubmission = chain.find(s => s.type === 'word')
+  // Filter out the first word from the remaining submissions
+  const remainingSubmissions = chain.filter(s => !(s.type === 'word' && s.round === firstWordSubmission?.round))
+
   return (
     <div className="min-h-screen bg-gray-50 p-6 landscape:p-2">
       <div className="mx-auto">
-        {/* Header */}
+        {/* Header with initial word */}
         <div className="bg-white rounded-xl shadow-md p-6 landscape:p-3 mb-6 landscape:mb-3">
-          <div className="flex items-center gap-4 landscape:gap-2 mb-4 landscape:mb-0">
-            <Avatar avatar={chainOwner.avatar} name={chainOwner.name} size="lg" />
-            <div>
-              <h1 className="text-2xl landscape:text-lg font-bold text-gray-800">{chainOwner.name}'s Chain</h1>
-              <p className="text-gray-600 landscape:text-xs">Watch the evolution unfold...</p>
-            </div>
+          <div className="flex items-center gap-4 landscape:gap-2 mb-4 landscape:mb-2">
+            <Avatar avatar={chainOwner.avatar} name={chainOwner.name} size="md" />
+            <p className="text-xl landscape:text-base text-gray-600">
+              {chainOwner.name}'s word was...
+            </p>
           </div>
+          {firstWordSubmission && (
+            <p className="text-3xl landscape:text-xl font-bold text-gray-800 text-center mb-4 landscape:mb-2">
+              {firstWordSubmission.content}
+            </p>
+          )}
         </div>
 
-        {/* Chain submissions */}
+        {/* Chain submissions (excluding first word) */}
         <div className="space-y-6 landscape:space-y-3 mb-6 landscape:mb-3">
-          {chain.map((submission, index) => {
+          {remainingSubmissions.map((submission, index) => {
             const submitter = players.find(p => p.did === submission.submitterDid)
             const isMySubmission = submission.submitterDid === myDid
 
@@ -204,7 +213,7 @@ function SubmissionCard({
       <div className="bg-white rounded-xl shadow-md p-6 landscape:p-3 border-2 border-gray-300">
         <div className="flex items-center gap-3 landscape:gap-2 mb-4 landscape:mb-2">
           <div className="bg-rose-100 text-rose-800 px-3 py-1 landscape:px-2 landscape:py-0.5 rounded-full text-sm landscape:text-xs font-bold">
-            Round {submission.round + 1} - Word
+            Round {submission.round }: Word
           </div>
           <div className="flex items-center gap-2 landscape:gap-1">
             <Avatar avatar={submitter?.avatar} name={submitter?.name || 'Unknown'} size="sm" />
@@ -228,7 +237,7 @@ function SubmissionCard({
       <div className="bg-white rounded-xl shadow-md p-6 landscape:p-3 border-2 border-gray-300">
         <div className="flex items-center gap-3 landscape:gap-2 mb-4 landscape:mb-2">
           <div className="bg-rose-100 text-rose-800 px-3 py-1 landscape:px-2 landscape:py-0.5 rounded-full text-sm landscape:text-xs font-bold">
-            Round {submission.round + 1} - Guess
+            Round {submission.round }: Guess
           </div>
           <div className="flex items-center gap-2 landscape:gap-1">
             <Avatar avatar={submitter?.avatar} name={submitter?.name || 'Unknown'} size="sm" />
@@ -253,7 +262,7 @@ function SubmissionCard({
       <div ref={cardRef} className="bg-white rounded-xl shadow-md p-6 landscape:p-3 border-2 border-gray-300">
         <div className="flex items-center gap-3 landscape:gap-2 mb-4 landscape:mb-2">
           <div className="bg-rose-100 text-rose-800 px-3 py-1 landscape:px-2 landscape:py-0.5 rounded-full text-sm landscape:text-xs font-bold">
-            Round {submission.round + 1} - Drawing
+            Round {submission.round }: Drawing
           </div>
           <div className="flex items-center gap-2 landscape:gap-1">
             <Avatar avatar={submitter?.avatar} name={submitter?.name || 'Unknown'} size="sm" />

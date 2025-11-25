@@ -10,7 +10,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@meetup/shared": "workspace:*",
+    "@internal/shared": "workspace:*",
     "drizzle-orm": "^0.44.7",
     "hono": "^4.10.4"
   },

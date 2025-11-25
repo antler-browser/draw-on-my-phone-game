@@ -12,7 +12,7 @@ import { createDb } from './db/client'
 import * as GameModel from './db/models/games'
 import * as PlayerModel from './db/models/players'
 import * as SubmissionModel from './db/models/submissions'
-import { decodeAndVerifyJWT, getTaskType, isGameComplete } from '@meetup/shared'
+import { decodeAndVerifyJWT, getTaskType, isGameComplete } from '@internal/shared'
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -68,7 +68,7 @@ app.post('/api/game/:id/join', async (c) => {
 
     // Verify and decode the profile JWT
     const profilePayload = await decodeAndVerifyJWT(profileJwt)
-    const avatarPayload = await decodeAndVerifyJWT(avatarJwt)
+    const avatarPayload = avatarJwt ? await decodeAndVerifyJWT(avatarJwt) : null
 
     // Extract profile data
     const { did, name } = profilePayload.data as {
@@ -76,7 +76,7 @@ app.post('/api/game/:id/join', async (c) => {
       name: string
     }
 
-    const avatar = avatarPayload.data.avatar || null
+    const avatar = avatarPayload?.data?.avatar || null
 
     // Create database instance
     const db = createDb(c.env.DB)
@@ -114,13 +114,6 @@ app.post('/api/game/:id/join', async (c) => {
     if (playerCount === 0) {
       await GameModel.updateGame(db, gameId, {
         hostDid: did,
-        totalPlayers: 1,
-        updatedAt: Math.floor(Date.now() / 1000)
-      })
-    } else {
-      // Update game with new player count
-      await GameModel.updateGame(db, gameId, {
-        totalPlayers: playerCount + 1,
         updatedAt: Math.floor(Date.now() / 1000)
       })
     }
@@ -177,12 +170,16 @@ app.post('/api/game/:id/start', async (c) => {
 
     if (game.status !== 'lobby') { // Check game status
       return c.json({ error: 'Game has already started' }, 400)
-    }else if (!game.totalPlayers || game.totalPlayers < 3) { // Check if game has enough players
+    }
+
+    // Count actual players to validate minimum requirement
+    const playerCount = await PlayerModel.countPlayers(db, gameId)
+    if (playerCount < 3) { // Check if game has enough players
       return c.json({ error: 'Need at least 3 players to start' }, 400)
     }
 
-    // Start the game
-    await GameModel.startGame(db, gameId)
+    // Start the game and set totalPlayers (immutable after this point)
+    await GameModel.startGame(db, gameId, playerCount)
 
     // Notify Durable Object to load immutable data and broadcast
     await notifyGameRoom(c, gameId, 'game_started')
@@ -356,13 +353,10 @@ app.get('/api/ws', async (c) => {
 })
 
 /**
- * GET /health - Health check endpoint
+ * GET / - Root endpoint (returns '😁', useful for health check)
  */
-app.get('/health', (c) => {
-  return c.json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-  })
+app.get('/', (c) => {
+  return c.text('😁')
 })
 
 // Export Durable Object

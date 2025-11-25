@@ -153,98 +153,10 @@ The app uses **one Durable Object per game room** (`idFromName: 'game:${gameId}'
 ### WebSocket Message Types
 
 WebSocket message types are defined inline in `/server/src/durable-object.ts` and `/shared/src/types.ts`.
-
-**Client ← Server (Currently Implemented)**:
 - `game_state_full` - Full game state with players array (sent on connection and after state changes)
-  ```typescript
-  {
-    type: 'game_state_full',
-    data: {
-      gameId: string
-      status: 'lobby' | 'playing' | 'finished'
-      hostDid: string
-      players: Player[]  // Includes base64 avatars
-      currentRound: number
-      timerDuration: number
-      totalPlayers: number | null
-    }
-  }
-  ```
-- `error` - Error messages (e.g., "Game not found", "Game already started")
-
-**Planned (Phase 2)**:
 - `game_state_update` - Lightweight state updates without players array (400x smaller for round updates)
-  ```typescript
-  {
-    type: 'game_state_update',
-    data: {
-      gameId: string
-      status: 'lobby' | 'playing' | 'finished'
-      currentRound: number
-      roundStartTime: number
-      // NO players array (loaded once, cached in Zustand)
-    }
-  }
-  ```
 
 **Note**: All game actions (create, join, start, submit) go through REST API endpoints, not WebSocket messages. WebSocket is used only for broadcasting state updates to all players in a room.
-
-### Database Schema
-
-**Games Table** (`/server/src/db/schema.ts`):
-```typescript
-{
-  id: string              // 6-character random game ID (primary key)
-  hostDid: string         // Creator's DID (immutable after game starts)
-  status: 'lobby' | 'playing' | 'finished'
-  timerDuration: number   // Seconds per turn (30/60/90, immutable after game starts)
-  currentRound: number    // 0-indexed round counter
-  totalPlayers: number | null  // Set when game starts, immutable thereafter
-  createdAt: number       // Unix timestamp
-  updatedAt: number       // Unix timestamp
-}
-```
-
-**Players Table** (`/server/src/db/schema.ts`):
-```typescript
-{
-  id: number              // Auto-increment primary key
-  gameId: string          // Foreign key → games.id (cascade delete)
-  did: string             // Player's DID from IRL Browser JWT
-  name: string            // Player's display name
-  avatar: string | null   // Base64-encoded image or null
-  turnPosition: number    // 0-indexed position in rotation (assigned on join)
-  createdAt: number
-  updatedAt: number
-}
-// Indexes: idx_players_game_id, idx_players_did
-```
-
-**Submissions Table** (Completion Tracking Only):
-```typescript
-{
-  id: number              // Auto-increment
-  gameId: string          // Foreign key → games.id (cascade delete)
-  chainOwnerDid: string   // Whose "phone" this chain belongs to
-  round: number           // 0-indexed (round 0 = word selection)
-  submitterDid: string    // Who made this submission
-  type: 'word' | 'draw' | 'guess'
-  createdAt: number
-}
-// Indexes: idx_submissions_game_id, idx_submissions_chain_owner, idx_submissions_game_round
-// Note: All content (words, drawings, guesses) stored locally on devices, not in database
-// This table only tracks completion for round progression coordination
-```
-
-### Database Model Functions
-
-**Submissions Model** (`/server/src/db/models/submissions.ts`):
-- `createSubmission(db, data)` - Create a new submission record (metadata only, no content)
-- `getSubmissionBySubmitter(db, gameId, round, submitterDid)` - Check if player already submitted for a round
-- `countSubmissionsByGameAndRound(db, gameId, round)` - Count submissions to determine round completion
-- `getSubmissionsByGameAndRound(db, gameId, round)` - Get all submissions for a round (used by alarm handler to identify missing players)
-
-**Note**: Submission records contain only metadata (gameId, chainOwnerDid, round, submitterDid, type). Actual content (words, drawings, guesses) is never sent to the server and remains in client-side localStorage only.
 
 ### State Management (Zustand Store)
 
@@ -289,6 +201,7 @@ The game uses Zustand for client-side state management with a clear separation b
 - localStorage persistence for all game content and player identity
 
 ### JWT Verification Pipeline (`/shared/src/jwt.ts`)
+
 The shared package exports `decodeAndVerifyJWT` which is used by both client and server to verify cryptographically signed user data from the IRL Browser.
 
 1. Decode JWT with `jwt-decode`
@@ -301,7 +214,7 @@ The shared package exports `decodeAndVerifyJWT` which is used by both client and
 
 **Key detail**: Uses @noble/curves library for signature verification. (Cannot use Web Crypto APIs as most mobile browsers don't support Ed25519 yet.)
 
-**Import**: Both client and server import from `@meetup/shared` workspace package.
+**Import**: Both client and server import from `@internal/shared` workspace package.
 
 ### Game Lifecycle and Phases
 

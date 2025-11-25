@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
-import type { ServerGameState, GameStateUpdate, Player, TaskType, Submission } from '@meetup/shared'
-import { getTaskType, getChainOwnerPosition } from '@meetup/shared'
+import type { ServerGameState, GameStateUpdate, Player, TaskType, Submission } from '@internal/shared'
+import { getTaskType, getChainOwnerPosition } from '@internal/shared'
 
 /**
  * Chain data structure for reveal phase
@@ -25,11 +25,16 @@ export interface DrawingData {
 }
 
 /**
+ * Connection status
+ */
+export type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting'
+
+/**
  * Zustand store for Draw on my phone game state
  *
  * Architecture:
  * - Shared state from server (broadcast to all players via WebSocket)
- * - Client-only state (myDid, WebSocket connection)
+ * - Client-only state (myDid, WebSocket connection, offline resilience)
  * - Computed getters (derive personalized view from shared state)
  */
 interface GameStore {
@@ -39,6 +44,10 @@ interface GameStore {
   // Client-only state
   myDid: string
   wsConnection: WebSocket | null
+  connectionStatus: ConnectionStatus
+  hasEverConnected: boolean // Track if we've ever successfully connected (to avoid showing banner on initial load)
+  reconnectAttempt: number
+  reconnectTimeoutId: number | null
   chainDrawings: Record<string, DrawingData> // `${gameId}:${myDid}:${round}` -> drawing with dimensions
   chainSubmissions: Record<string, ChainData> // `${gameId}:${myDid}:${round}` -> submission (word/guess metadata, stored locally)
   chains: Record<string, ChainData[]> | null // chainOwnerDid -> submissions (for reveal phase)
@@ -53,7 +62,7 @@ interface GameStore {
   getSubmission: (gameId: string, round: number) => ChainData | undefined
   connectWebSocket: (gameId: string, baseUrl: string) => void
   disconnectWebSocket: () => void
-  clearGame: (gameId?: string) => void
+  clearAllGamesExceptGameId: (gameId: string) => void
   fetchChains: (gameId: string) => Promise<void>
 
   // Computed getters (derive personalized view from shared state)
@@ -73,6 +82,10 @@ export const useGameStore = create<GameStore>()(
         gameState: null,
         myDid: '',
         wsConnection: null,
+        connectionStatus: 'disconnected',
+        hasEverConnected: false,
+        reconnectAttempt: 0,
+        reconnectTimeoutId: null,
         chainDrawings: {},
         chainSubmissions: {},
         chains: null,
@@ -156,6 +169,13 @@ export const useGameStore = create<GameStore>()(
         },
 
       connectWebSocket: (gameId, baseUrl) => {
+        // Clear any existing reconnect timeout
+        const existingTimeout = get().reconnectTimeoutId
+        if (existingTimeout) {
+          clearTimeout(existingTimeout)
+          set({ reconnectTimeoutId: null })
+        }
+
         // Disconnect existing connection if any
         const existingWs = get().wsConnection
         if (existingWs) {
@@ -168,11 +188,17 @@ export const useGameStore = create<GameStore>()(
         const wsUrl = `${wsProtocol}://${wsHost}/api/ws?gameId=${gameId}`
 
         console.log('Connecting to WebSocket:', wsUrl)
+        set({ connectionStatus: 'reconnecting' })
 
         const ws = new WebSocket(wsUrl)
 
         ws.onopen = () => {
           console.log('WebSocket connected')
+          set({
+            connectionStatus: 'connected',
+            hasEverConnected: true,
+            reconnectAttempt: 0
+          })
         }
 
         ws.onmessage = (event) => {
@@ -207,46 +233,70 @@ export const useGameStore = create<GameStore>()(
           console.error('WebSocket error:', error)
         }
 
-        ws.onclose = () => {
-          console.log('WebSocket closed')
-          set({ wsConnection: null })
+        ws.onclose = (event) => {
+          console.log('WebSocket closed', event.code, event.reason)
+          set({
+            wsConnection: null,
+            connectionStatus: 'disconnected'
+          })
+
+          // Attempt to reconnect with exponential backoff
+          const attempt = get().reconnectAttempt
+          const maxAttempts = 10
+
+          if (attempt < maxAttempts) {
+            const backoffMs = Math.min(1000 * Math.pow(2, attempt), 30000)
+            console.log(`Reconnecting in ${backoffMs}ms (attempt ${attempt + 1}/${maxAttempts})`)
+
+            set({ connectionStatus: 'reconnecting' })
+
+            const timeoutId = window.setTimeout(() => {
+              set({ reconnectAttempt: attempt + 1 })
+              get().connectWebSocket(gameId, baseUrl)
+            }, backoffMs)
+
+            set({ reconnectTimeoutId: timeoutId })
+          } else {
+            console.error('Max reconnection attempts reached')
+            set({ connectionStatus: 'disconnected' })
+          }
         }
 
         set({ wsConnection: ws })
       },
 
       disconnectWebSocket: () => {
+        // Clear reconnect timeout if any
+        const timeoutId = get().reconnectTimeoutId
+        if (timeoutId) {
+          clearTimeout(timeoutId)
+          set({ reconnectTimeoutId: null })
+        }
+
         const ws = get().wsConnection
         if (ws) {
           ws.close()
-          set({ wsConnection: null })
+          set({ wsConnection: null, connectionStatus: 'disconnected' })
         }
       },
 
-      clearGame: (gameId) => {
+      clearAllGamesExceptGameId: (gameId) => {
         get().disconnectWebSocket()
 
-        // If no gameId provided, clear everything
-        if (!gameId) {
-          set({ gameState: null, myDid: '', chainDrawings: {}, chainSubmissions: {}, chains: null })
-          return
-        }
-
-        // Otherwise, clear only data for this specific game and myDid
+        // Keep only data for this specific game, delete everything else
         const state = get()
-        const { myDid } = get()
-        const prefix = myDid ? `${gameId}:${myDid}:` : `${gameId}:`
+        const prefix = `${gameId}:`
 
         const filteredDrawings: Record<string, DrawingData> = {}
         Object.entries(state.chainDrawings).forEach(([key, value]) => {
-          if (!key.startsWith(prefix)) {
+          if (key.startsWith(prefix)) {
             filteredDrawings[key] = value
           }
         })
 
         const filteredSubmissions: Record<string, ChainData> = {}
         Object.entries(state.chainSubmissions).forEach(([key, value]) => {
-          if (!key.startsWith(prefix)) {
+          if (key.startsWith(prefix)) {
             filteredSubmissions[key] = value
           }
         })
@@ -256,6 +306,7 @@ export const useGameStore = create<GameStore>()(
           chainDrawings: filteredDrawings,
           chainSubmissions: filteredSubmissions,
           chains: null
+          // Note: myDid is preserved (not touched)
         })
       },
 
@@ -332,6 +383,8 @@ export const selectPlayers = (state: GameStore) => state.gameState?.players ?? [
 export const selectCurrentRound = (state: GameStore) => state.gameState?.currentRound ?? 0
 export const selectChains = (state: GameStore) => state.chains
 export const selectGameId = (state: GameStore) => state.gameState?.gameId
+export const selectConnectionStatus = (state: GameStore) => state.connectionStatus
+export const selectHasEverConnected = (state: GameStore) => state.hasEverConnected
 
 /**
  * Migration: Detect old localStorage format and wipe clean

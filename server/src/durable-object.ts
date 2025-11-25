@@ -7,8 +7,8 @@ import {
   getSubmissionsByGameAndRound,
   createSubmission
 } from './db/models/submissions'
-import type { ServerGameState, GameStateUpdate } from '@meetup/shared'
-import { getTaskType, getChainOwnerPosition, isGameComplete } from '@meetup/shared'
+import type { ServerGameState, GameStateUpdate } from '@internal/shared'
+import { getTaskType, getChainOwnerPosition, isGameComplete } from '@internal/shared'
 
 /**
  * GameRoom Durable Object

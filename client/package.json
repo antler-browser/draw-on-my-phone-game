@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
-    "@meetup/shared": "workspace:*",
+    "@internal/shared": "workspace:*",
+    "irl-browser-onboarding": "^1.1.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
     "react-canvas-draw": "^1.2.1",

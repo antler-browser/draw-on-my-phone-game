@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { decodeAndVerifyJWT } from '@meetup/shared'
+import { decodeAndVerifyJWT } from '@internal/shared'
+import { IrlOnboarding } from 'irl-browser-onboarding/react'
 import { GameLobby } from '../components/GameLobby'
 import { WordSelection } from '../components/WordSelection'
 import { DrawingView } from '../components/DrawingView'
 import { GuessView } from '../components/GuessView'
 import { ChainReveal } from '../components/ChainReveal'
+import { DesktopView } from '../components/DesktopView'
 import { useGameStore, selectMyTask } from '../stores/gameStore'
 
 export function Game() {
@@ -13,6 +15,8 @@ export function Game() {
   const navigate = useNavigate()
   const [isJoining, setIsJoining] = useState(true)
   const [joinError, setJoinError] = useState<string | null>(null)
+  const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null) // null = loading
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false)
 
   // Zustand store
   const gameState = useGameStore(state => state.gameState)
@@ -20,12 +24,27 @@ export function Game() {
   const setMyDid = useGameStore(state => state.setMyDid)
   const connectWebSocket = useGameStore(state => state.connectWebSocket)
   const disconnectWebSocket = useGameStore(state => state.disconnectWebSocket)
-  const clearGame = useGameStore(state => state.clearGame)
+  const clearAllGamesExceptGameId = useGameStore(state => state.clearAllGamesExceptGameId)
   const myTask = useGameStore(selectMyTask)
 
+  // Handler for when onboarding completes - now window.irlBrowser is available
+  const handleOnboardingComplete = useCallback(async () => {
+    setShowOnboardingModal(false)
+    setShowOnboarding(false)
+    // Re-run the join flow now that irlBrowser is available
+    await loadProfileDid()
+    await autoJoinGame()
+  }, [])
+
   useEffect(() => {
-    // Get profile DID and set in store
-    loadProfileDid()
+    // Check if window.irlBrowser is available (native app or returning web user)
+    const hasIrlBrowser = !!window.irlBrowser
+    setShowOnboarding(!hasIrlBrowser)
+
+    // Get profile DID and set in store (only if irlBrowser available)
+    if (hasIrlBrowser) {
+      loadProfileDid()
+    }
 
     // Auto-join the game
     autoJoinGame()
@@ -72,13 +91,18 @@ export function Game() {
       setJoinError('No game ID provided')
       setIsJoining(false)
       return
-    }else if (!window.irlBrowser) {
+    }
+
+    // Clear all other game data before joining
+    clearAllGamesExceptGameId(gameId)
+
+    // Always connect to WebSocket first
+    const baseUrl = `${window.location.protocol}//${window.location.host}`
+    connectWebSocket(gameId, baseUrl)
+
+    if (!window.irlBrowser) {
       console.error('IRL Browser not found')
       setIsJoining(false)
-
-      // Connect to WebSocket if no IRL Browser
-      const baseUrl = window.location.protocol + '//' + window.location.host
-      connectWebSocket(gameId, baseUrl)
       return
     }
 
@@ -100,9 +124,6 @@ export function Game() {
       // Successfully joined (either new or existing player)
       setIsJoining(false)
 
-      // Connect to WebSocket
-      const baseUrl = window.location.protocol + '//' + window.location.host
-      connectWebSocket(gameId, baseUrl)
     } catch (err) {
       console.error('Error joining game:', err)
       setJoinError((err as Error).message)
@@ -136,41 +157,44 @@ export function Game() {
     }
   }
   
-  // if not IRL Browser, show error message
-  if (!window.irlBrowser) {
-    if (!gameState) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-          <div className="text-gray-800 text-center">
-            <p className="text-xl font-semibold">Loading game...</p>
-          </div>
-        </div>
-      )
-    }
-    if (gameState.status === 'lobby') {
-      return (
-        <GameLobby
+  // If no IRL Browser and onboarding is needed, show DesktopView with onboarding option
+  if (showOnboarding) {
+    return (
+      <>
+        <DesktopView
+          gameState={gameState}
           gameId={gameId!}
           onStartGame={handleStartGame}
         />
-      )
-    }else if (gameState.status === 'playing') {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-          <div className="text-gray-800 text-center">
-            <p className="text-xl font-semibold">Game is in progress!</p>
+
+        {/* Floating "Join Game" button for users without IRL Browser */}
+        <button
+          onClick={() => setShowOnboardingModal(true)}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-rose-800 text-white px-8 py-4 rounded-full shadow-lg hover:bg-rose-900 transition-all hover:scale-105 font-semibold text-lg z-40"
+        >
+          Join Game
+        </button>
+
+        {/* Onboarding modal */}
+        {showOnboardingModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            {/* Backdrop */}
+            <div
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => setShowOnboardingModal(false)}
+            />
+            {/* Modal content */}
+            <div className="relative z-10 w-full max-w-lg mx-4 max-h-[90vh] overflow-auto rounded-2xl shadow-2xl">
+              <IrlOnboarding
+                mode="choice"
+                onComplete={handleOnboardingComplete}
+                customStyles={{ primaryColor: '#9f1239' }}
+              />
+            </div>
           </div>
-        </div>
-      )
-    }else if (gameState.status === 'finished') {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-          <div className="text-gray-800 text-center">
-            <p className="text-xl font-semibold">Game is finished!</p>
-          </div>
-        </div>
-      )
-    }
+        )}
+      </>
+    )
   }
 
   // Show error if join failed
@@ -182,7 +206,6 @@ export function Game() {
           <p className="text-gray-600 mb-6">{joinError}</p>
           <button
             onClick={() => {
-              clearGame()
               navigate('/')
             }}
             className="bg-rose-800 text-white py-3 px-6 rounded-lg font-bold hover:bg-rose-900 transition-colors shadow-sm"
@@ -270,9 +293,6 @@ export function Game() {
       <ChainReveal
         chainOwnerDid={myDid}
         onBackToHome={() => {
-          if (gameState) {
-            clearGame(gameState.gameId)
-          }
           navigate('/')
         }}
       />

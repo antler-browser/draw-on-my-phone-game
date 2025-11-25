@@ -1,5 +1,5 @@
 import { Avatar } from './Avatar'
-import { SocialPlatform, getPlatforSVGIcon, getFullURL } from '@meetup/shared'
+import { SocialPlatform, getPlatforSVGIcon, getFullURL } from '@internal/shared'
 import type { User } from './UserDetail'
 
 interface UserListProps {

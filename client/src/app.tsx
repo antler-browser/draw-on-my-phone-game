@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom'
 import { Home } from './routes/Home'
 import { Game } from './routes/Game'
+import { ConnectionBanner } from './components/ConnectionBanner'
 
 // TypeScript declarations for IRL Browser API
 declare global {
@@ -11,7 +12,7 @@ declare global {
       getBrowserDetails(): {
         name: string
         version: string
-        platform: 'ios' | 'android'
+        platform: 'ios' | 'android' | 'browser'
         supportedPermissions: string[]
       }
       requestPermission(permission: string): Promise<boolean>
@@ -22,9 +23,12 @@ declare global {
 
 export function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/game/:gameId" element={<Game />} />
-    </Routes>
+    <>
+      <ConnectionBanner hideOnPaths={['/']} />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/game/:gameId" element={<Game />} />
+      </Routes>
+    </>
   )
 }

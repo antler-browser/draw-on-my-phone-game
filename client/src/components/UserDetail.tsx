@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Avatar } from './Avatar'
-import { SocialPlatform, getPlatforSVGIcon, getFullURL } from '@meetup/shared'
+import { SocialPlatform, getPlatforSVGIcon, getFullURL } from '@internal/shared'
 export type { User }
 
 interface User {

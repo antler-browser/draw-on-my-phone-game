@@ -43,6 +43,7 @@ export async function createGame(
 export async function startGame(
   db: Database,
   gameId: string,
+  totalPlayers: number
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000)
 
@@ -51,6 +52,7 @@ export async function startGame(
     .set({
       status: 'playing',
       currentRound: 0,
+      totalPlayers,
       roundStartTime: now,
       updatedAt: now,
     })
