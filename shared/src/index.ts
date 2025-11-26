@@ -27,6 +27,7 @@ export type {
 } from './types.js'
 
 export {
+  getEffectiveRound,
   getTaskType,
   getChainOwnerPosition,
   getCurrentHolderPosition,

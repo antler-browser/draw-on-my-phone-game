@@ -67,7 +67,7 @@ interface GameStore {
 
   // Computed getters (derive personalized view from shared state)
   getMyPlayer: () => Player | undefined
-  getMyChain: () => Player | undefined
+  getMyChainOwner: () => Player | undefined
   getMyTask: () => TaskType | null
   getDeadline: () => number
   isHost: () => boolean
@@ -323,7 +323,7 @@ export const useGameStore = create<GameStore>()(
         return chains[chainOwnerDid]
       },
 
-      getMyChain: () => {
+      getMyChainOwner: () => {
         const { gameState } = get()
         const myPlayer = get().getMyPlayer()
         if (!myPlayer || !gameState) return undefined
@@ -335,7 +335,7 @@ export const useGameStore = create<GameStore>()(
           gameState.players.length
         )
 
-        return gameState.players[chainOwnerPosition]
+        return gameState.players.find(p => p.turnPosition === chainOwnerPosition)
       },
 
       getMyTask: () => {
@@ -343,7 +343,7 @@ export const useGameStore = create<GameStore>()(
         if (!gameState || gameState.status !== 'playing') return null
 
         // Use shared game logic
-        return getTaskType(gameState.currentRound, gameState.players.length)
+        return getTaskType(gameState.currentRound)
       },
 
       getDeadline: () => {
@@ -374,7 +374,7 @@ export const useGameStore = create<GameStore>()(
 
 // Selectors (optional, for cleaner component code)
 export const selectMyPlayer = (state: GameStore) => state.getMyPlayer()
-export const selectMyChain = (state: GameStore) => state.getMyChain()
+export const selectMyChainOwner = (state: GameStore) => state.getMyChainOwner()
 export const selectMyTask = (state: GameStore) => state.getMyTask()
 export const selectDeadline = (state: GameStore) => state.getDeadline()
 export const selectIsHost = (state: GameStore) => state.isHost()

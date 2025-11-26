@@ -1,8 +1,8 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import CanvasDraw from 'react-canvas-draw'
 import { ArrowUturnLeftIcon, TrashIcon } from '@heroicons/react/24/outline'
-import { useGameStore, selectMyChain, selectCurrentRound, selectPlayers } from '../stores/gameStore'
-import { getCurrentHolderPosition, getNextChainHolder } from '@internal/shared'
+import { useGameStore, selectMyChainOwner, selectCurrentRound } from '../stores/gameStore'
+import { useChainInfo } from '../hooks/useChainInfo'
 import { GameTimer } from './GameTimer'
 import { Avatar } from './Avatar'
 
@@ -20,55 +20,27 @@ export function DrawingView() {
   const buttonRef = useRef<HTMLButtonElement>(null)
 
   const gameState = useGameStore(state => state.gameState)
-  const myChain = useGameStore(selectMyChain)
+  const myChainOwner = useGameStore(selectMyChainOwner)
   const currentRound = useGameStore(selectCurrentRound)
-  const myDid = useGameStore(state => state.myDid)
-  const players = useGameStore(selectPlayers)
   const saveDrawing = useGameStore(state => state.saveDrawing)
   const getSubmission = useGameStore(state => state.getSubmission)
 
-  // Calculate who is currently holding this chain (the actual contributor)
-  // myDid is the device owner (chain owner), but someone else may be using the phone
-  const getCurrentHolder = () => {
-    const chainOwner = players.find(p => p.did === myDid)
-    if (!chainOwner || players.length === 0) return null
-
-    // Use shared game logic to account for Round 1 no-rotation for even players
-    const currentHolderPosition = getCurrentHolderPosition(
-      chainOwner.turnPosition,
-      currentRound,
-      players.length
-    )
-    return players.find(p => p.turnPosition === currentHolderPosition) || null
-  }
-
-  const currentHolder = getCurrentHolder()
-  const getCurrentHolderDid = (): string => currentHolder?.did || myDid
-
-  // Calculate who should receive the phone next
-  const getNextPlayer = () => {
-    const chainOwner = players.find(p => p.did === myDid)
-    if (!chainOwner || players.length === 0) return null
-
-    // Use shared game logic to get current holder position
-    const currentHolderPosition = getCurrentHolderPosition(
-      chainOwner.turnPosition,
-      currentRound,
-      players.length
-    )
-    const nextHolderPosition = getNextChainHolder(currentHolderPosition, players.length)
-    return players.find(p => p.turnPosition === nextHolderPosition) || null
-  }
-
-  const nextPlayer = getNextPlayer()
+  // Use centralized hook for chain info (handles even-player special case)
+  const { currentHolder, nextHolder: nextPlayer, currentHolderDid } = useChainInfo()
 
   const [brushColor, setBrushColor] = useState('#000000')
   const brushRadius = 3 // Fixed to Medium brush size
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [hasSubmitted, setHasSubmitted] = useState(false)
   const [prompt, setPrompt] = useState<string>('Loading...')
-  const [isLoadingPrompt, setIsLoadingPrompt] = useState(true)
   const [canvasSize, setCanvasSize] = useState({ width: 600, height: 400 })
+
+  // Capture the current holder DID and round at mount to prevent race conditions
+  // with server-side auto-submit advancing the round before client timer fires
+  const [roundSnapshot] = useState(() => ({
+    holderDid: currentHolderDid,
+    round: gameState?.currentRound ?? 0
+  }))
 
   // Calculate optimal canvas size to fill available space
   useEffect(() => {
@@ -112,8 +84,7 @@ export function DrawingView() {
 
   // Load the previous word/guess from localStorage
   useEffect(() => {
-    if (!gameState || !myChain || currentRound < 1) {
-      setIsLoadingPrompt(false)
+    if (!gameState || !myChainOwner || currentRound < 1) {
       return
     }
 
@@ -126,9 +97,7 @@ export function DrawingView() {
     } else {
       setPrompt('Draw what you see!')
     }
-
-    setIsLoadingPrompt(false)
-  }, [gameState, myChain, currentRound, getSubmission])
+  }, [gameState, myChainOwner, currentRound, getSubmission])
 
   const handleClear = () => {
     if (canvasRef.current) {
@@ -142,8 +111,8 @@ export function DrawingView() {
     }
   }
 
-  const handleSubmit = async () => {
-    if (!canvasRef.current || !gameState || !myChain || isSubmitting || hasSubmitted) return
+  const handleSubmit = useCallback(async () => {
+    if (!canvasRef.current || !gameState || !myChainOwner || isSubmitting || hasSubmitted) return
 
     setIsSubmitting(true)
 
@@ -151,20 +120,22 @@ export function DrawingView() {
     const saveData = canvasRef.current.getSaveData()
 
     // Save drawing canvas with dimensions to localStorage (always succeeds)
-    saveDrawing(gameState.gameId, currentRound, {
+    // Use the round captured at mount to prevent race conditions
+    saveDrawing(gameState.gameId, roundSnapshot.round, {
       drawing: saveData,
       width: canvasSize.width,
       height: canvasSize.height
     })
 
     // Save drawing submission metadata to localStorage
-    // Use the calculated current holder (the person actually drawing), not the device owner
+    // Use the holder DID captured at mount to prevent race conditions
+    // (server may advance round before client timer fires)
     useGameStore.getState().saveSubmission(
       gameState.gameId,
-      gameState.currentRound,
+      roundSnapshot.round,
       'draw',
       null, // content is null for drawings
-      getCurrentHolderDid()
+      roundSnapshot.holderDid
     )
 
     // Immediately mark as submitted (optimistic UI)
@@ -182,9 +153,9 @@ export function DrawingView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           profileJwt: jwt,
-          chainOwnerDid: myChain.did,
+          chainOwnerDid: myChainOwner.did,
           type: 'draw',
-          round: gameState.currentRound,
+          round: roundSnapshot.round,
         }),
       }).catch(err => {
         console.log('Drawing submission POST failed (content saved locally):', err)
@@ -192,7 +163,38 @@ export function DrawingView() {
     }).catch(err => {
       console.log('Failed to get JWT for submission POST:', err)
     })
-  }
+  }, [gameState, myChainOwner, isSubmitting, hasSubmitted, canvasSize, roundSnapshot, saveDrawing])
+
+  // Auto-submit when round advances (other players finished before our timer)
+  useEffect(() => {
+    const currentServerRound = gameState?.currentRound ?? 0
+    if (currentServerRound > roundSnapshot.round && !hasSubmitted && !isSubmitting) {
+      handleSubmit()
+    }
+  }, [gameState?.currentRound, roundSnapshot.round, hasSubmitted, isSubmitting, handleSubmit])
+
+  // Save on unmount if not already submitted (captures current canvas state)
+  useEffect(() => {
+    return () => {
+      if (!useGameStore.getState().getSubmission(gameState?.gameId || '', roundSnapshot.round)) {
+        if (canvasRef.current && gameState) {
+          const saveData = canvasRef.current.getSaveData()
+          useGameStore.getState().saveDrawing(gameState.gameId, roundSnapshot.round, {
+            drawing: saveData,
+            width: canvasSize.width,
+            height: canvasSize.height
+          })
+          useGameStore.getState().saveSubmission(
+            gameState.gameId,
+            roundSnapshot.round,
+            'draw',
+            null,
+            roundSnapshot.holderDid
+          )
+        }
+      }
+    }
+  }, [])
 
   const handleTimerExpire = () => {
     // Auto-submit when timer runs out

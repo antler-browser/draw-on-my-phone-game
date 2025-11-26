@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
-import { useGameStore, selectMyChain, selectPlayers, selectCurrentRound } from '../stores/gameStore'
+import { useState, useEffect, useCallback } from 'react'
+import { useGameStore, selectMyChainOwner } from '../stores/gameStore'
 import { getRandomWords } from '@internal/shared'
+import { useChainInfo } from '../hooks/useChainInfo'
 import { GameTimer } from './GameTimer'
 import { Avatar } from './Avatar'
 
@@ -12,26 +13,22 @@ type Phase = 'word' | 'submitted'
  */
 export function WordSelection() {
   const gameState = useGameStore(state => state.gameState)
-  const myChain = useGameStore(selectMyChain)
+  const myChainOwner = useGameStore(selectMyChainOwner)
   const myDid = useGameStore(state => state.myDid)
-  const players = useGameStore(selectPlayers)
-  const currentRound = useGameStore(selectCurrentRound)
+
+  // Use centralized hook for chain info (handles even-player special case)
+  const { currentHolder } = useChainInfo()
 
   const [words, setWords] = useState<string[]>([])
   const [selectedWord, setSelectedWord] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [phase, setPhase] = useState<Phase>('word')
 
-  // Get current holder (for round 0, this is always the chain owner)
-  const getCurrentHolder = () => {
-    const chainOwner = players.find(p => p.did === myDid)
-    if (!chainOwner || players.length === 0) return null
-
-    const currentHolderPosition = (chainOwner.turnPosition + currentRound) % players.length
-    return players.find(p => p.turnPosition === currentHolderPosition) || null
-  }
-
-  const currentHolder = getCurrentHolder()
+  // Capture round at mount to prevent race conditions
+  // (server may advance round before client timer fires)
+  const [roundSnapshot] = useState(() => ({
+    round: gameState?.currentRound ?? 0
+  }))
 
   // Generate random words on component mount
   useEffect(() => {
@@ -40,17 +37,17 @@ export function WordSelection() {
   }, [])
 
   // Handle word selection
-  const handleWordSubmit = async () => {
-    if (!gameState || !myChain || isSubmitting) return
+  const handleWordSubmit = useCallback(async () => {
+    if (!gameState || !myChainOwner || isSubmitting) return
 
     // Auto-select first word if timer expires and no word selected
     const finalWord = selectedWord || (words.length > 0 ? words[0] : null)
     if (!finalWord) return
 
-    // Save word to localStorage
+    // Save word to localStorage (use captured round to prevent race conditions)
     useGameStore.getState().saveSubmission(
       gameState.gameId,
-      gameState.currentRound,
+      roundSnapshot.round,
       'word',
       finalWord,
       myDid
@@ -73,7 +70,7 @@ export function WordSelection() {
           profileJwt: jwt,
           chainOwnerDid: myDid,
           type: 'word',
-          round: gameState.currentRound,
+          round: roundSnapshot.round,
         }),
       }).catch(err => {
         console.log('Word submission POST failed (content saved locally):', err)
@@ -81,7 +78,32 @@ export function WordSelection() {
     }).catch(err => {
       console.log('Failed to get JWT for submission POST:', err)
     })
-  }
+  }, [gameState, myChainOwner, isSubmitting, selectedWord, words, roundSnapshot, myDid])
+
+  // Auto-submit when round advances (other players finished before our timer)
+  useEffect(() => {
+    const currentServerRound = gameState?.currentRound ?? 0
+    if (currentServerRound > roundSnapshot.round && phase === 'word' && !isSubmitting) {
+      handleWordSubmit()
+    }
+  }, [gameState?.currentRound, roundSnapshot.round, phase, isSubmitting, handleWordSubmit])
+
+  // Save on unmount if not already submitted (captures selected word)
+  useEffect(() => {
+    return () => {
+      if (!useGameStore.getState().getSubmission(gameState?.gameId || '', roundSnapshot.round)) {
+        if (gameState) {
+          useGameStore.getState().saveSubmission(
+            gameState.gameId,
+            roundSnapshot.round,
+            'word',
+            selectedWord || (words.length > 0 ? words[0] : null),
+            myDid
+          )
+        }
+      }
+    }
+  }, [])
 
   const handleTimerExpire = () => {
     // Auto-submit word selection when timer expires

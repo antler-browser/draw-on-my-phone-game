@@ -230,7 +230,7 @@ app.post('/api/game/:id/submit', async (c) => {
     }
 
     // Validate submission type matches expected task type
-    const expectedTaskType = getTaskType(game.currentRound, game.totalPlayers || 0)
+    const expectedTaskType = getTaskType(game.currentRound)
     if (type !== expectedTaskType) {
       return c.json({
         error: `Invalid submission type. Expected ${expectedTaskType}, got ${type}`

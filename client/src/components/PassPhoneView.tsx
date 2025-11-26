@@ -1,5 +1,4 @@
-import { useGameStore, selectCurrentRound, selectPlayers } from '../stores/gameStore'
-import { getCurrentHolderPosition, getNextChainHolder } from '@internal/shared'
+import { useChainInfo } from '../hooks/useChainInfo'
 import { Avatar } from './Avatar'
 
 /**
@@ -8,28 +7,8 @@ import { Avatar } from './Avatar'
  * Shows which player to pass the phone to
  */
 export function PassPhoneView({ onReady }: { onReady: () => void }) {
-  const myDid = useGameStore(state => state.myDid)
-  const currentRound = useGameStore(selectCurrentRound)
-  const players = useGameStore(selectPlayers)
-
-  // Calculate who should receive the phone next
-  const getNextPlayer = () => {
-    const chainOwner = players.find(p => p.did === myDid)
-    if (!chainOwner || players.length === 0) return null
-
-    // Use shared game logic to get current holder position (accounts for Round 1 no-rotation)
-    const currentHolderPosition = getCurrentHolderPosition(
-      chainOwner.turnPosition,
-      currentRound,
-      players.length
-    )
-
-    // Next holder's position
-    const nextHolderPosition = getNextChainHolder(currentHolderPosition, players.length)
-    return players.find(p => p.turnPosition === nextHolderPosition) || null
-  }
-
-  const nextPlayer = getNextPlayer()
+  // Use centralized hook for chain info (handles even-player special case)
+  const { nextHolder: nextPlayer } = useChainInfo()
 
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-gray-50 p-6 landscape:p-3">

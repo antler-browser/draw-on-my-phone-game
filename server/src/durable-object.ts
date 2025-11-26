@@ -41,15 +41,11 @@ export class GameRoom extends DurableObject<Env> {
         return new Response('Expected WebSocket upgrade', { status: 426 })
       }
 
-      // Extract gameId from query params
+      // Extract and persist gameId from query params
       const gameId = url.searchParams.get('gameId')
-      if (!gameId) {
-        return new Response('Missing gameId', { status: 400 })
-      }
-
-      // Store gameId if not already set
-      if (!this.gameId) {
+      if (gameId && !this.gameId) {
         this.gameId = gameId
+        await this.ctx.storage.put('gameId', gameId)
       }
 
       const pair = new WebSocketPair()
@@ -66,13 +62,6 @@ export class GameRoom extends DurableObject<Env> {
     // Broadcast endpoint (called by Worker after player joins/leaves during lobby)
     if (url.pathname === '/player_joined' && request.method === 'POST') {
       try {
-        const { gameId } = await request.json<{ gameId: string }>()
-        if (!this.gameId) {
-          this.gameId = gameId
-        } else if (this.gameId !== gameId) {
-          console.error(`GameID mismatch in /player_joined: expected ${this.gameId}, got ${gameId}`)
-          return new Response('GameID mismatch', { status: 400 })
-        }
         await this.broadcastInitialState()
         return new Response('OK')
       } catch (err) {
@@ -84,13 +73,6 @@ export class GameRoom extends DurableObject<Env> {
     // Game started endpoint (called when host starts the game)
     if (url.pathname === '/game_started' && request.method === 'POST') {
       try {
-        const { gameId } = await request.json<{ gameId: string }>()
-        if (!this.gameId) {
-          this.gameId = gameId
-        } else if (this.gameId !== gameId) {
-          console.error(`GameID mismatch in /game_started: expected ${this.gameId}, got ${gameId}`)
-          return new Response('GameID mismatch', { status: 400 })
-        }
         await this.loadImmutableData()
         await this.scheduleAlarm()
         await this.broadcastInitialState()
@@ -104,10 +86,6 @@ export class GameRoom extends DurableObject<Env> {
     // Round advanced endpoint (called when round advances)
     if (url.pathname === '/round_advanced' && request.method === 'POST') {
       try {
-        if (!this.gameId) {
-          console.error('GameID not set in /round_advanced')
-          return new Response('GameID not set', { status: 400 })
-        }
         await this.scheduleAlarm()
         await this.broadcastState()
         return new Response('OK')
@@ -120,12 +98,9 @@ export class GameRoom extends DurableObject<Env> {
     // Game ended endpoint (called when game finishes)
     if (url.pathname === '/game_ended' && request.method === 'POST') {
       try {
-        if (!this.gameId) {
-          console.error('GameID not set in /game_ended')
-          return new Response('GameID not set', { status: 400 })
-        }
         await this.ctx.storage.deleteAlarm()
         await this.broadcastState()
+        await this.ctx.storage.deleteAll() // Clean up persisted gameId
         return new Response('OK')
       } catch (err) {
         console.error('Game ended error:', err)
@@ -136,10 +111,6 @@ export class GameRoom extends DurableObject<Env> {
     // Submission received endpoint (lightweight broadcast)
     if (url.pathname === '/submission_received' && request.method === 'POST') {
       try {
-        if (!this.gameId) {
-          console.error('GameID not set in /submission_received')
-          return new Response('GameID not set', { status: 400 })
-        }
         await this.broadcastState()
         return new Response('OK')
       } catch (err) {
@@ -351,6 +322,10 @@ export class GameRoom extends DurableObject<Env> {
    * Alarm handler - triggered when round timeout occurs
    */
   async alarm(): Promise<void> {
+    // Load gameId from storage if lost during hibernation
+    if (!this.gameId) {
+      this.gameId = await this.ctx.storage.get<string>('gameId') ?? null
+    }
     if (!this.gameId) {
       console.error('Alarm fired but gameId not set')
       return
@@ -375,7 +350,7 @@ export class GameRoom extends DurableObject<Env> {
     const players = await getPlayersByGameId(db, this.gameId)
 
     // Determine task type for this round
-    const taskType = getTaskType(game.currentRound, this.totalPlayers || game.totalPlayers || players.length)
+    const taskType = getTaskType(game.currentRound)
 
     // Auto-submit for missing players
     for (const player of players) {
@@ -388,7 +363,11 @@ export class GameRoom extends DurableObject<Env> {
           game.currentRound,
           players.length
         )
-        const chainOwner = players[chainOwnerPosition]
+        const chainOwner = players.find(p => p.turnPosition === chainOwnerPosition)
+        if (!chainOwner) {
+          console.error(`Chain owner not found for position ${chainOwnerPosition}`)
+          continue
+        }
 
         // Create auto-submission for timeout
         await createSubmission(db, {
@@ -411,8 +390,9 @@ export class GameRoom extends DurableObject<Env> {
         status: 'finished',
         updatedAt: Math.floor(Date.now() / 1000)
       })
-      await this.ctx.storage.deleteAlarm()
       await this.broadcastState()
+      await this.ctx.storage.deleteAlarm()
+      await this.ctx.storage.deleteAll() // Clean up persisted gameId
     } else {
       // Advance to next round
       const now = Math.floor(Date.now() / 1000)

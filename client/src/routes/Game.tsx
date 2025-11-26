@@ -217,8 +217,8 @@ export function Game() {
     )
   }
 
-  // Still joining or waiting for game state from WebSocket
-  if (isJoining || !gameState) {
+  // Still joining or waiting for game state from WebSocket or myDid
+  if (isJoining || !gameState || !myDid) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-gray-800 text-center">

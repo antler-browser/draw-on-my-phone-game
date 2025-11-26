@@ -1,7 +1,7 @@
 {
-  "name": "meetup",
+  "name": "draw-on-my-phone-game",
   "private": true,
-  "description": "Scan a QR code at a meetup and see everyone else that scanned the QR code.",
+  "description": "Draw on my phone game",
   "license": "MIT",
   "keywords": [
     "antler",
