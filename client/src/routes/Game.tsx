@@ -187,6 +187,7 @@ export function Game() {
             <div className="relative z-10 w-full max-w-lg mx-4 max-h-[90vh] overflow-auto rounded-2xl shadow-2xl">
               <IrlOnboarding
                 mode="choice"
+                skipSocialStep={true}
                 onComplete={handleOnboardingComplete}
                 customStyles={{ primaryColor: '#9f1239' }}
               />
