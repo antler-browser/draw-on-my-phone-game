@@ -22,7 +22,7 @@ export function Game() {
   const gameState = useGameStore(state => state.gameState)
   const myDid = useGameStore(state => state.myDid)
   const setMyDid = useGameStore(state => state.setMyDid)
-  const connectWebSocket = useGameStore(state => state.connectWebSocket)
+  const joinAndConnect = useGameStore(state => state.joinAndConnect)
   const disconnectWebSocket = useGameStore(state => state.disconnectWebSocket)
   const clearAllGamesExceptGameId = useGameStore(state => state.clearAllGamesExceptGameId)
   const myTask = useGameStore(selectMyTask)
@@ -72,20 +72,6 @@ export function Game() {
     }
   }
 
-  const getProfileJwt = async (): Promise<string> => {
-    if (!window.irlBrowser) {
-      throw new Error('IRL Browser not available')
-    }
-    return await window.irlBrowser.getProfileDetails()
-  }
-
-  const getAvatarJwt = async (): Promise<string | null> => {
-    if (!window.irlBrowser) {
-      throw new Error('IRL Browser not available')
-    }
-    return await window.irlBrowser.getAvatar()
-  }
-
   const autoJoinGame = async () => {
     if (!gameId) {
       setJoinError('No game ID provided')
@@ -96,34 +82,17 @@ export function Game() {
     // Clear all other game data before joining
     clearAllGamesExceptGameId(gameId)
 
-    // Always connect to WebSocket first
-    const baseUrl = `${window.location.protocol}//${window.location.host}`
-    connectWebSocket(gameId, baseUrl)
-
-    if (!window.irlBrowser) {
-      console.error('IRL Browser not found')
-      setIsJoining(false)
-      return
-    }
-
     try {
-      const profileJwt = await getProfileJwt()
-      const avatarJwt = await getAvatarJwt()
+      const baseUrl = `${window.location.protocol}//${window.location.host}`
 
-      const response = await fetch(`/api/game/${gameId}/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profileJwt, avatarJwt }),
-      })
+      // joinAndConnect handles: IRL Browser check, REST join, then WebSocket connect
+      const result = await joinAndConnect(gameId, baseUrl)
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to join game')
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to join game')
       }
 
-      // Successfully joined (either new or existing player)
       setIsJoining(false)
-
     } catch (err) {
       console.error('Error joining game:', err)
       setJoinError((err as Error).message)
@@ -136,8 +105,12 @@ export function Game() {
       throw new Error('No game ID')
     }
 
+    if (!window.irlBrowser) {
+      throw new Error('IRL Browser not available')
+    }
+
     try {
-      const profileJwt = await getProfileJwt()
+      const profileJwt = await window.irlBrowser.getProfileDetails()
 
       const response = await fetch(`/api/game/${gameId}/start`, {
         method: 'POST',

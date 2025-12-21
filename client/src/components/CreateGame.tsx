@@ -24,7 +24,7 @@ export function CreateGame({ onCreateGame, isIRLBrowser }: CreateGameProps) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gray-50">
       <div className="bg-white rounded-xl shadow-md p-8 max-w-md w-full">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-800 mb-2">Draw On My Phone</h1>
@@ -92,6 +92,18 @@ export function CreateGame({ onCreateGame, isIRLBrowser }: CreateGameProps) {
             </ul>
           </div>
         </div>
+      </div>
+      {/* Open Source Footer */}
+      <div className="mt-4 text-center text-sm text-gray-500">
+      This is an open source project. {' '}
+        <a
+          href="https://github.com/antler-browser/draw-on-my-phone-game"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-rose-700 hover:text-rose-800 underline"
+        >
+          [Source Code]
+        </a>
       </div>
     </div>
   )

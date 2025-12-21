@@ -314,10 +314,8 @@ async function notifyGameRoom(
     const doId = c.env.GAME_ROOM.idFromName(`game:${gameId}`)
     const gameRoom = c.env.GAME_ROOM.get(doId)
 
-    await gameRoom.fetch(new Request(`http://do/${action}`, {
+    await gameRoom.fetch(new Request(`http://do/${action}?gameId=${gameId}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ gameId }),
     }))
   } catch (err) {
     console.error('Error notifying GameRoom:', err)

@@ -11,6 +11,16 @@ import type { ServerGameState, GameStateUpdate } from '@internal/shared'
 import { getTaskType, getChainOwnerPosition, isGameComplete } from '@internal/shared'
 
 /**
+ * Immutable game data stored once when game starts
+ */
+interface GameData {
+  gameId: string
+  hostDid: string
+  timerDuration: number
+  totalPlayers: number
+}
+
+/**
  * GameRoom Durable Object
  *
  * Manages real-time WebSocket connections for a single game room.
@@ -21,14 +31,9 @@ import { getTaskType, getChainOwnerPosition, isGameComplete } from '@internal/sh
  * - Broadcasts game state updates to all connected players
  * - Automatic eviction by Cloudflare when all connections close
  * - D1 database is the source of truth (DO stores minimal state)
- * - Immutable data pattern: loads hostDid, timerDuration, totalPlayers once when game starts
+ * - Immutable game data stored in ctx.storage once at game start (survives hibernation)
  */
 export class GameRoom extends DurableObject<Env> {
-  private gameId: string | null = null
-  private hostDid: string | null = null
-  private timerDuration: number | null = null
-  private totalPlayers: number | null = null
-
   /**
    * Handle incoming requests to the Durable Object
    */
@@ -41,17 +46,15 @@ export class GameRoom extends DurableObject<Env> {
         return new Response('Expected WebSocket upgrade', { status: 426 })
       }
 
-      // Extract and persist gameId from query params
       const gameId = url.searchParams.get('gameId')
-      if (gameId && !this.gameId) {
-        this.gameId = gameId
-        await this.ctx.storage.put('gameId', gameId)
+      if (!gameId) {
+        return new Response('Missing gameId parameter', { status: 400 })
       }
 
       const pair = new WebSocketPair()
       const [client, server] = Object.values(pair)
 
-      await this.handleWebSocket(server)
+      await this.handleWebSocket(server, gameId)
 
       return new Response(null, {
         status: 101,
@@ -61,8 +64,12 @@ export class GameRoom extends DurableObject<Env> {
 
     // Broadcast endpoint (called by Worker after player joins/leaves during lobby)
     if (url.pathname === '/player_joined' && request.method === 'POST') {
+      const gameId = url.searchParams.get('gameId')
+      if (!gameId) {
+        return new Response('Missing gameId parameter', { status: 400 })
+      }
       try {
-        await this.broadcastInitialState()
+        await this.broadcastInitialState(gameId)
         return new Response('OK')
       } catch (err) {
         console.error('Broadcast error:', err)
@@ -72,10 +79,33 @@ export class GameRoom extends DurableObject<Env> {
 
     // Game started endpoint (called when host starts the game)
     if (url.pathname === '/game_started' && request.method === 'POST') {
+      const gameId = url.searchParams.get('gameId')
+      if (!gameId) {
+        return new Response('Missing gameId parameter', { status: 400 })
+      }
       try {
-        await this.loadImmutableData()
-        await this.scheduleAlarm()
-        await this.broadcastInitialState()
+        // Load and persist all immutable data once
+        const db = createDb(this.env.DB)
+        const game = await getGameById(db, gameId)
+        if (!game) {
+          return new Response('Game not found', { status: 404 })
+        }
+
+        if (!game.hostDid || !game.timerDuration || !game.totalPlayers) {
+          return new Response('Missing game data', { status: 400 })
+        }
+
+        const gameData: GameData = {
+          gameId,
+          hostDid: game.hostDid,
+          timerDuration: game.timerDuration,
+          totalPlayers: game.totalPlayers!
+        }
+        
+        await this.ctx.storage.put('gameData', gameData)
+
+        await this.scheduleAlarm(gameId)
+        await this.broadcastInitialState(gameId)
         return new Response('OK')
       } catch (err) {
         console.error('Game started error:', err)
@@ -85,9 +115,13 @@ export class GameRoom extends DurableObject<Env> {
 
     // Round advanced endpoint (called when round advances)
     if (url.pathname === '/round_advanced' && request.method === 'POST') {
+      const gameId = url.searchParams.get('gameId')
+      if (!gameId) {
+        return new Response('Missing gameId parameter', { status: 400 })
+      }
       try {
-        await this.scheduleAlarm()
-        await this.broadcastState()
+        await this.scheduleAlarm(gameId)
+        await this.broadcastState(gameId)
         return new Response('OK')
       } catch (err) {
         console.error('Round advanced error:', err)
@@ -97,9 +131,13 @@ export class GameRoom extends DurableObject<Env> {
 
     // Game ended endpoint (called when game finishes)
     if (url.pathname === '/game_ended' && request.method === 'POST') {
+      const gameId = url.searchParams.get('gameId')
+      if (!gameId) {
+        return new Response('Missing gameId parameter', { status: 400 })
+      }
       try {
         await this.ctx.storage.deleteAlarm()
-        await this.broadcastState()
+        await this.broadcastState(gameId)
         await this.ctx.storage.deleteAll() // Clean up persisted gameId
         return new Response('OK')
       } catch (err) {
@@ -110,8 +148,12 @@ export class GameRoom extends DurableObject<Env> {
 
     // Submission received endpoint (lightweight broadcast)
     if (url.pathname === '/submission_received' && request.method === 'POST') {
+      const gameId = url.searchParams.get('gameId')
+      if (!gameId) {
+        return new Response('Missing gameId parameter', { status: 400 })
+      }
       try {
-        await this.broadcastState()
+        await this.broadcastState(gameId)
         return new Response('OK')
       } catch (err) {
         console.error('Submission received error:', err)
@@ -125,12 +167,12 @@ export class GameRoom extends DurableObject<Env> {
   /**
    * Handle new WebSocket connection
    */
-  private async handleWebSocket(webSocket: WebSocket): Promise<void> {
+  private async handleWebSocket(webSocket: WebSocket, gameId: string): Promise<void> {
     // Accept the WebSocket using Hibernation API
     this.ctx.acceptWebSocket(webSocket)
 
     // Send full game state to the connecting client
-    await this.broadcastInitialState(webSocket)
+    await this.broadcastInitialState(gameId, webSocket)
   }
 
   /**
@@ -145,14 +187,17 @@ export class GameRoom extends DurableObject<Env> {
     // Check if this was the last connection
     const remainingConnections = this.ctx.getWebSockets()
 
-    if (remainingConnections.length === 0 && this.gameId) {
-      const db = createDb(this.env.DB)
-      const game = await getGameById(db, this.gameId)
+    if (remainingConnections.length === 0) {
+      const gameData = await this.ctx.storage.get<GameData>('gameData')
+      if (gameData) {
+        const db = createDb(this.env.DB)
+        const game = await getGameById(db, gameData.gameId)
 
-      // If game is still playing, clean up alarm to prevent unnecessary operations
-      if (game && (game.status === 'playing' || game.status === 'finished')) {
-        console.log(`All players disconnected from game ${this.gameId}, cleaning up alarm`)
-        await this.ctx.storage.deleteAlarm()
+        // If game is still playing, clean up alarm to prevent unnecessary operations
+        if (game && (game.status === 'playing' || game.status === 'finished')) {
+          console.log(`All players disconnected from game ${gameData.gameId}, cleaning up alarm`)
+          await this.ctx.storage.deleteAlarm()
+        }
       }
     }
   }
@@ -168,27 +213,22 @@ export class GameRoom extends DurableObject<Env> {
    * Broadcast full game state with players array
    * Called when: client connects, lobby changes, game starts
    */
-  private async broadcastInitialState(targetWs?: WebSocket): Promise<void> {
-    if (!this.gameId) {
-      console.error('Cannot broadcast: gameId not set')
-      return
-    }
-
+  private async broadcastInitialState(gameId: string, targetWs?: WebSocket): Promise<void> {
     const db = createDb(this.env.DB)
 
     // Query current game state
-    const game = await getGameById(db, this.gameId)
+    const game = await getGameById(db, gameId)
     if (!game) {
-      console.error(`Game not found: ${this.gameId}`)
+      console.error(`Game not found: ${gameId}`)
       return
     }
 
     // Query all players
-    const players = await getPlayersByGameId(db, this.gameId)
+    const players = await getPlayersByGameId(db, gameId)
 
     // Build full state
     const fullState: ServerGameState = {
-      gameId: this.gameId,
+      gameId: gameId,
       status: game.status as 'lobby' | 'playing' | 'finished',
       hostDid: game.hostDid,
       players: players,
@@ -224,58 +264,28 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   /**
-   * Load immutable game data once when game starts
-   * Called when: game transitions from lobby to playing
-   */
-  private async loadImmutableData(): Promise<void> {
-    if (!this.gameId || this.hostDid !== null) {
-      return // Already loaded
-    }
-
-    const db = createDb(this.env.DB)
-    const game = await getGameById(db, this.gameId)
-
-    if (!game) {
-      console.error(`Game not found: ${this.gameId}`)
-      return
-    }
-
-    // Store immutable scalar data in memory
-    this.hostDid = game.hostDid
-    this.timerDuration = game.timerDuration
-    this.totalPlayers = game.totalPlayers
-
-    console.log(`Loaded immutable data for game ${this.gameId}`)
-  }
-
-  /**
    * Broadcast lightweight state update (no players array)
    * Called when: round advances, game ends, submission received
    */
-  private async broadcastState(): Promise<void> {
-    if (!this.gameId) {
-      console.error('Cannot broadcast: gameId not set')
-      return
-    }
+  private async broadcastState(gameId: string): Promise<void> {
+    const gameData = await this.ctx.storage.get<GameData>('gameData')
 
     const db = createDb(this.env.DB)
-
-    // Query only mutable fields
-    const game = await getGameById(db, this.gameId)
+    const game = await getGameById(db, gameId)
     if (!game) {
-      console.error(`Game not found: ${this.gameId}`)
+      console.error(`Game not found: ${gameId}`)
       return
     }
 
     // Build lightweight state update (no players array)
     const stateUpdate: GameStateUpdate = {
-      gameId: this.gameId,
+      gameId: gameId,
       status: game.status as 'lobby' | 'playing' | 'finished',
       currentRound: game.currentRound,
       roundStartTime: game.roundStartTime,
-      hostDid: this.hostDid || game.hostDid,
-      timerDuration: this.timerDuration || game.timerDuration,
-      totalPlayers: this.totalPlayers || game.totalPlayers,
+      hostDid: gameData?.hostDid || game.hostDid,
+      timerDuration: gameData?.timerDuration || game.timerDuration,
+      totalPlayers: gameData?.totalPlayers || game.totalPlayers,
     }
 
     const message = JSON.stringify({
@@ -297,14 +307,11 @@ export class GameRoom extends DurableObject<Env> {
   /**
    * Schedule alarm for round timeout
    */
-  private async scheduleAlarm(): Promise<void> {
-    if (!this.gameId) {
-      console.error('Cannot schedule alarm: gameId not set')
-      return
-    }
+  private async scheduleAlarm(gameId: string): Promise<void> {
+    const gameData = await this.ctx.storage.get<GameData>('gameData')
 
     const db = createDb(this.env.DB)
-    const game = await getGameById(db, this.gameId)
+    const game = await getGameById(db, gameId)
 
     if (!game || !game.roundStartTime) {
       console.error('Cannot schedule alarm: missing game or roundStartTime')
@@ -312,42 +319,42 @@ export class GameRoom extends DurableObject<Env> {
     }
 
     // Calculate deadline (roundStartTime is in seconds, convert to milliseconds)
-    const deadline = (game.roundStartTime * 1000) + (this.timerDuration || game.timerDuration) * 1000
+    const timerDuration = gameData?.timerDuration || game.timerDuration
+    const deadline = (game.roundStartTime * 1000) + timerDuration * 1000
 
     await this.ctx.storage.setAlarm(deadline)
-    console.log(`⏰ Alarm scheduled for game ${this.gameId} at ${new Date(deadline).toISOString()}`)
+    console.log(`⏰ Alarm scheduled for game ${gameId} at ${new Date(deadline).toISOString()}`)
   }
 
   /**
    * Alarm handler - triggered when round timeout occurs
    */
   async alarm(): Promise<void> {
-    // Load gameId from storage if lost during hibernation
-    if (!this.gameId) {
-      this.gameId = await this.ctx.storage.get<string>('gameId') ?? null
-    }
-    if (!this.gameId) {
-      console.error('Alarm fired but gameId not set')
+    // Load game data from storage
+    const gameData = await this.ctx.storage.get<GameData>('gameData')
+    if (!gameData) {
+      console.error('Alarm fired but gameData not in storage')
       return
     }
 
-    console.log(`⏰ Alarm fired for game ${this.gameId}`)
+    const { gameId, totalPlayers } = gameData
+    console.log(`⏰ Alarm fired for game ${gameId}`)
 
     const db = createDb(this.env.DB)
 
     // Get current game state
-    const game = await getGameById(db, this.gameId)
+    const game = await getGameById(db, gameId)
     if (!game || game.status !== 'playing') {
       console.log('Game not playing, skipping alarm')
       return
     }
 
     // Find players who haven't submitted
-    const submissions = await getSubmissionsByGameAndRound(db, this.gameId, game.currentRound)
+    const submissions = await getSubmissionsByGameAndRound(db, gameId, game.currentRound)
     const submittedDids = new Set(submissions.map(s => s.submitterDid))
 
     // Get all players
-    const players = await getPlayersByGameId(db, this.gameId)
+    const players = await getPlayersByGameId(db, gameId)
 
     // Determine task type for this round
     const taskType = getTaskType(game.currentRound)
@@ -371,7 +378,7 @@ export class GameRoom extends DurableObject<Env> {
 
         // Create auto-submission for timeout
         await createSubmission(db, {
-          gameId: this.gameId,
+          gameId: gameId,
           chainOwnerDid: chainOwner.did,
           round: game.currentRound,
           submitterDid: player.did,
@@ -384,29 +391,29 @@ export class GameRoom extends DurableObject<Env> {
     // All players have now submitted (auto or manual) - advance round
     const nextRound = game.currentRound + 1
 
-    if (isGameComplete(nextRound, this.totalPlayers || game.totalPlayers || players.length)) {
+    if (isGameComplete(nextRound, totalPlayers)) {
       // Game is complete
-      await updateGame(db, this.gameId, {
+      await updateGame(db, gameId, {
         status: 'finished',
         updatedAt: Math.floor(Date.now() / 1000)
       })
-      await this.broadcastState()
+      await this.broadcastState(gameId)
       await this.ctx.storage.deleteAlarm()
-      await this.ctx.storage.deleteAll() // Clean up persisted gameId
+      await this.ctx.storage.deleteAll() // Clean up persisted gameData
     } else {
       // Advance to next round
       const now = Math.floor(Date.now() / 1000)
-      await updateGame(db, this.gameId, {
+      await updateGame(db, gameId, {
         currentRound: nextRound,
         roundStartTime: now,
         updatedAt: now
       })
 
       // Schedule next alarm
-      await this.scheduleAlarm()
+      await this.scheduleAlarm(gameId)
 
       // Broadcast new round state
-      await this.broadcastState()
+      await this.broadcastState(gameId)
     }
   }
 }

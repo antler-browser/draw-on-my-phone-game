@@ -27,7 +27,7 @@ export interface DrawingData {
 /**
  * Connection status
  */
-export type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting'
+export type ConnectionStatus = 'disconnected' | 'joining' | 'connected' | 'reconnecting'
 
 /**
  * Zustand store for Draw on my phone game state
@@ -62,6 +62,7 @@ interface GameStore {
   getSubmission: (gameId: string, round: number) => ChainData | undefined
   connectWebSocket: (gameId: string, baseUrl: string) => void
   disconnectWebSocket: () => void
+  joinAndConnect: (gameId: string, baseUrl: string) => Promise<{ success: boolean; error?: string }>
   clearAllGamesExceptGameId: (gameId: string) => void
   fetchChains: (gameId: string) => Promise<void>
 
@@ -250,9 +251,10 @@ export const useGameStore = create<GameStore>()(
 
             set({ connectionStatus: 'reconnecting' })
 
-            const timeoutId = window.setTimeout(() => {
+            const timeoutId = window.setTimeout(async () => {
               set({ reconnectAttempt: attempt + 1 })
-              get().connectWebSocket(gameId, baseUrl)
+              // Re-issue join + connect using IRL Browser API directly
+              await get().joinAndConnect(gameId, baseUrl)
             }, backoffMs)
 
             set({ reconnectTimeoutId: timeoutId })
@@ -270,13 +272,52 @@ export const useGameStore = create<GameStore>()(
         const timeoutId = get().reconnectTimeoutId
         if (timeoutId) {
           clearTimeout(timeoutId)
-          set({ reconnectTimeoutId: null })
         }
 
         const ws = get().wsConnection
         if (ws) {
           ws.close()
-          set({ wsConnection: null, connectionStatus: 'disconnected' })
+        }
+
+        // Reset all connection state
+        set({
+          wsConnection: null,
+          connectionStatus: 'disconnected',
+          reconnectTimeoutId: null,
+          reconnectAttempt: 0  // Reset for fresh behavior on next connect
+        })
+      },
+
+      joinAndConnect: async (gameId, baseUrl) => {
+        set({ connectionStatus: 'joining' })
+
+        try {
+          if (!window.irlBrowser) {
+            throw new Error('IRL Browser not available')
+          }
+
+          // Step 1: REST join FIRST
+          const profileJwt = await window.irlBrowser.getProfileDetails()
+          const avatarJwt = await window.irlBrowser.getAvatar()
+
+          const response = await fetch(`${baseUrl}/api/game/${gameId}/join`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ profileJwt, avatarJwt }),
+          })
+
+          if (!response.ok) {
+            const error = await response.json()
+            set({ connectionStatus: 'disconnected' })
+            return { success: false, error: error.error || 'Failed to join game' }
+          }
+
+          // Step 2: NOW connect WebSocket (player is in the database)
+          get().connectWebSocket(gameId, baseUrl)
+          return { success: true }
+        } catch (error) {
+          set({ connectionStatus: 'disconnected' })
+          return { success: false, error: (error as Error).message }
         }
       },
 
