@@ -27,65 +27,37 @@ export function Game() {
   const clearAllGamesExceptGameId = useGameStore(state => state.clearAllGamesExceptGameId)
   const myTask = useGameStore(selectMyTask)
 
-  // Handler for when onboarding completes - now window.irlBrowser is available
-  const handleOnboardingComplete = useCallback(async () => {
-    setShowOnboardingModal(false)
-    setShowOnboarding(false)
-    // Re-run the join flow now that irlBrowser is available
-    await loadProfileDid()
-    await autoJoinGame()
-  }, [])
-
-  useEffect(() => {
-    // Check if window.irlBrowser is available (native app or returning web user)
-    const hasIrlBrowser = !!window.irlBrowser
-    setShowOnboarding(!hasIrlBrowser)
-
-    // Get profile DID and set in store (only if irlBrowser available)
-    if (hasIrlBrowser) {
-      loadProfileDid()
-    }
-
-    // Auto-join the game
-    autoJoinGame()
-
-    // Cleanup on unmount
-    return () => {
-      disconnectWebSocket()
-    }
-  }, [])
-
-  const loadProfileDid = async () => {
+  // Combined function to load profile DID and join game (must be sequential)
+  const initializeAndJoinGame = async () => {
+    // 1. Load profile DID first
     try {
       if (!window.irlBrowser) {
         console.log('IRL Browser not found')
+        setIsJoining(false)
         return
       }
 
       const profileJwt = await window.irlBrowser.getProfileDetails()
       const profilePayload = await decodeAndVerifyJWT(profileJwt)
-
-      // Set DID in store
       setMyDid(profilePayload.iss)
     } catch (err) {
       console.error('Error loading profile DID:', err)
+      setJoinError('Failed to load profile')
+      setIsJoining(false)
+      return
     }
-  }
 
-  const autoJoinGame = async () => {
+    // 2. Then join game
     if (!gameId) {
       setJoinError('No game ID provided')
       setIsJoining(false)
       return
     }
 
-    // Clear all other game data before joining
     clearAllGamesExceptGameId(gameId)
 
     try {
       const baseUrl = `${window.location.protocol}//${window.location.host}`
-
-      // joinAndConnect handles: IRL Browser check, REST join, then WebSocket connect
       const result = await joinAndConnect(gameId, baseUrl)
 
       if (!result.success) {
@@ -99,6 +71,28 @@ export function Game() {
       setIsJoining(false)
     }
   }
+
+  // Handler for when onboarding completes - now window.irlBrowser is available
+  const handleOnboardingComplete = useCallback(async () => {
+    setShowOnboardingModal(false)
+    setShowOnboarding(false)
+    setJoinError(null)
+    setIsJoining(true)
+    await initializeAndJoinGame()
+  }, [])
+
+  useEffect(() => {
+    const hasIrlBrowser = !!window.irlBrowser
+    setShowOnboarding(!hasIrlBrowser)
+
+    if (hasIrlBrowser) {
+      initializeAndJoinGame()
+    }
+
+    return () => {
+      disconnectWebSocket()
+    }
+  }, [])
 
   const handleStartGame = async () => {
     if (!gameId) {

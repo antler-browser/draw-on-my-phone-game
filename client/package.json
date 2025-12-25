@@ -11,7 +11,7 @@
   "dependencies": {
     "@heroicons/react": "^2.2.0",
     "@internal/shared": "workspace:*",
-    "irl-browser-onboarding": "^1.2.0",
+    "irl-browser-onboarding": "^1.3.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.1",
     "react-canvas-draw": "^1.2.1",
