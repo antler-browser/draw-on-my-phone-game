@@ -1,26 +1,29 @@
 /**
- * Utility to decode and verify JWTs from IRL Browser using jwt-decode and @noble/ed25519
- * Based on the IRL Browser Specification specification
+ * Utility to decode and verify JWTs from Local First Auth using jwt-decode and @noble/ed25519
+ * Based on the Local First Auth Specification
  */
 
 import { jwtDecode } from 'jwt-decode'
 import { ed25519 } from '@noble/curves/ed25519.js';
 import * as base58 from 'base58-universal'
 
-export interface IRLJWTPayload {
+export interface LocalFirstAuthJWTPayload {
   iss: string; // DID of the user
   iat: number; // Issued at timestamp
   exp: number; // Expiration timestamp
-  type: string; // Message type (e.g., 'irl:profile:disconnected', 'irl:error')
+  type: string; // Message type (e.g., 'localFirstAuth:profile:disconnected', 'localFirstAuth:error')
   data: {
     [key: string]: any;
   };
 }
 
+// Backward compatibility alias
+export type IRLJWTPayload = LocalFirstAuthJWTPayload;
+
 /**
- * Decode and verify a JWT from IRL Browser
+ * Decode and verify a JWT from Local First Auth
  */
-export async function decodeAndVerifyJWT(jwt: string): Promise<IRLJWTPayload> {
+export async function decodeAndVerifyJWT(jwt: string): Promise<LocalFirstAuthJWTPayload> {
   try {
     // First decode to get the issuer (DID) and claims
     const decoded = jwtDecode(jwt);
@@ -46,7 +49,7 @@ export async function decodeAndVerifyJWT(jwt: string): Promise<IRLJWTPayload> {
     await verifyJWTSignature(jwt, publicKeyBytes);
 
     // Return the payload in our expected format
-    return decoded as unknown as IRLJWTPayload;
+    return decoded as unknown as LocalFirstAuthJWTPayload;
   } catch (error) {
     // If signature verification fails, log and throw
     console.warn('JWT verification failed:', (error as Error).message || 'Unknown error');
@@ -65,7 +68,7 @@ function extractPublicKeyFromDID(did: string): Uint8Array {
   // Extract the base58-encoded key (after 'did:key:z')
   const base58String = did.substring('did:key:z'.length);
 
-  // Decode base58 using the same library as IRL Browser
+  // Decode base58 using the same library as Local First Auth
   const bytes = base58.decode(base58String);
 
   // Remove the Ed25519 multicodec prefix [0xed, 0x01]

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A multiplayer drawing and guessing game built with Antler IRL Browser. Players alternate between drawing pictures and guessing what those pictures represent, creating hilarious chains of interpretations. This is a digital version of the classic "telephone with pictures" party game designed for at least 3 players.
+A multiplayer drawing and guessing game built with Local First Auth. Players alternate between drawing pictures and guessing what those pictures represent, creating hilarious chains of interpretations. This is a digital version of the classic "telephone with pictures" party game designed for at least 3 players.
 
 **Game Flow:** Host creates game → Players join lobby → Game starts → Word selection → Drawing/guessing rounds (pass-the-phone) → Reveal all drawings and guesses on this chain
 
@@ -16,7 +16,7 @@ A multiplayer drawing and guessing game built with Antler IRL Browser. Players a
 - Configurable timer per turn (30s, 60s, or 90s)
 - word list with 15+ categories for game content
 
-**Authentication:** Uses `window.irlBrowser` API for profile access with JWT verification. This mini app is meant to run inside an IRL Browser like Antler. See `/docs/irl-browser-specification.md` for IRL Browser Specification specification.
+**Authentication:** Uses `window.localFirstAuth` API for profile access with JWT verification. This mini app is meant to run inside a Local First Auth app like Antler. See `/docs/local-first-auth-spec.md` for the Local First Auth Specification.
 
 **Project Structure**: This is a pnpm workspace monorepo with three packages:
 - `client/` - React frontend with game UI components
@@ -42,10 +42,10 @@ A multiplayer drawing and guessing game built with Antler IRL Browser. Players a
   - `/gameStore.ts` - Zustand store for game state (shared + client-only state, localStorage for drawings/words/guesses)
 - `/client/src/routes/`: Route components
   - `/Game.tsx` - Main game component with routing for all game phases
-- `/client/src/app.tsx` - Main component with IRL Browser integration and game routing
-- `/client/src/main.tsx` - Entry point that renders App (initializes IRL Browser Simulator in dev mode)
+- `/client/src/app.tsx` - Main component with Local First Auth integration and game routing
+- `/client/src/main.tsx` - Entry point that renders App (initializes Local First Auth Simulator in dev mode)
 - `/client/public/`: Public files
-  - `irl-manifest.json` - Mini app IRL Browser manifest with metadata and requested permissions
+  - `local-first-auth-manifest.json` - Mini app Local First Auth manifest with metadata and requested permissions
   - `antler-icon.webp` - Mini app icon
 - `/client/vite.config.ts` - Vite configuration with proxy to backend
 
@@ -70,7 +70,7 @@ A multiplayer drawing and guessing game built with Antler IRL Browser. Players a
 
 ### Root
 - `/docs/`: Documentation
-  - `irl-browser-specification.md` - IRL Browser Specification specification
+  - `local-first-auth-spec.md` - Local First Auth Specification
   - `game-rules.md` - Complete draw-on-my-phone game rules and how to play
   - `technical-implementation.md` - Comprehensive architecture documentation (1,639 lines)
 - `/scripts/`: Helper scripts
@@ -202,7 +202,7 @@ The game uses Zustand for client-side state management with a clear separation b
 
 ### JWT Verification Pipeline (`/shared/src/jwt.ts`)
 
-The shared package exports `decodeAndVerifyJWT` which is used by both client and server to verify cryptographically signed user data from the IRL Browser.
+The shared package exports `decodeAndVerifyJWT` which is used by both client and server to verify cryptographically signed user data from Local First Auth apps.
 
 1. Decode JWT with `jwt-decode`
 2. Extract issuer DID from `iss` claim
@@ -266,15 +266,15 @@ No manual migration steps needed - everything is handled by `alchemy.run.ts` con
 
 ## Development Workflow
 
-### Debugging Multiplayer Game with IRL Browser Simulator
-The IRL Browser Simulator injects the `window.irlBrowser` API into a regular browser, allowing you to test the multiplayer game locally without needing multiple Antler mobile devices.
+### Debugging Multiplayer Game with Local First Auth Simulator
+The Local First Auth Simulator injects the `window.localFirstAuth` API into a regular browser, allowing you to test the multiplayer game locally without needing multiple Antler mobile devices.
 
 **Note:** This is a development-only tool and should never be used in production.
 
 ```typescript
 if (import.meta.env.DEV) {
-  const simulator = await import('irl-browser-simulator')
-  simulator.enableIrlBrowserSimulator()
+  const simulator = await import('local-first-auth-simulator')
+  simulator.enableLocalFirstAuthSimulator()
 }
 ```
 
@@ -287,11 +287,11 @@ if (import.meta.env.DEV) {
 6. Test lobby, game start, and real-time sync with simulated players
 
 **Features:**
-- Inject `window.irlBrowser` into your page
+- Inject `window.localFirstAuth` into your page
 - Load default test profile (Paul Morphy)
 - Floating debug panel
 - Click "Open as X" to simulate multiple players in separate tabs
-- Load specific profiles via URL: `?irlProfile=<id>`
+- Load specific profiles via URL: `?localFirstAuthProfile=<id>`
 - Test game with `?gameId=<id>` URL parameter for direct joining
 
 ## Third Party Libraries
@@ -302,7 +302,7 @@ if (import.meta.env.DEV) {
 - **Zustand** - State management with persist middleware for localStorage (drawings, chains)
 - **qrcode.react** - QR code generation for game joining URLs
 - **react-canvas-draw** - Drawing canvas component with save/load functionality
-- **irl-browser-simulator** - IRL Browser debugging (dev only, simulates multiple players)
+- **local-first-auth-simulator** - Local First Auth debugging (dev only, simulates multiple players)
 - **Vite** - Build tool and dev server
 
 ### Server
@@ -332,9 +332,9 @@ if (import.meta.env.DEV) {
 - Malformed DID (must start with `did:key:z`)
 - Audience claim mismatch (must match production URL)
 
-### IRL Browser API Not Available
-- Check if API exists: `console.log(window.irlBrowser)`
-- Ensure IRL Browser Simulator is enabled in dev mode
+### Local First Auth API Not Available
+- Check if API exists: `console.log(window.localFirstAuth)`
+- Ensure Local First Auth Simulator is enabled in dev mode
 - Verify `import.meta.env.DEV` is true
 
 ### Game Not Found / Connection Issues

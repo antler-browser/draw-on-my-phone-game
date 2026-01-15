@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { decodeAndVerifyJWT } from '@internal/shared'
-import { IrlOnboarding } from 'irl-browser-onboarding/react'
+import { Onboarding } from 'local-first-auth/react'
 import { GameLobby } from '../components/GameLobby'
 import { WordSelection } from '../components/WordSelection'
 import { DrawingView } from '../components/DrawingView'
@@ -31,13 +31,13 @@ export function Game() {
   const initializeAndJoinGame = async () => {
     // 1. Load profile DID first
     try {
-      if (!window.irlBrowser) {
-        console.log('IRL Browser not found')
+      if (!window.localFirstAuth) {
+        console.log('Local First Auth not found')
         setIsJoining(false)
         return
       }
 
-      const profileJwt = await window.irlBrowser.getProfileDetails()
+      const profileJwt = await window.localFirstAuth.getProfileDetails()
       const profilePayload = await decodeAndVerifyJWT(profileJwt)
       setMyDid(profilePayload.iss)
     } catch (err) {
@@ -72,7 +72,7 @@ export function Game() {
     }
   }
 
-  // Handler for when onboarding completes - now window.irlBrowser is available
+  // Handler for when onboarding completes - now window.localFirstAuth is available
   const handleOnboardingComplete = useCallback(async () => {
     setShowOnboardingModal(false)
     setShowOnboarding(false)
@@ -82,10 +82,10 @@ export function Game() {
   }, [])
 
   useEffect(() => {
-    const hasIrlBrowser = !!window.irlBrowser
-    setShowOnboarding(!hasIrlBrowser)
+    const hasLocalFirstAuth = !!window.localFirstAuth
+    setShowOnboarding(!hasLocalFirstAuth)
 
-    if (hasIrlBrowser) {
+    if (hasLocalFirstAuth) {
       initializeAndJoinGame()
     }
 
@@ -99,12 +99,12 @@ export function Game() {
       throw new Error('No game ID')
     }
 
-    if (!window.irlBrowser) {
-      throw new Error('IRL Browser not available')
+    if (!window.localFirstAuth) {
+      throw new Error('Local First Auth not available')
     }
 
     try {
-      const profileJwt = await window.irlBrowser.getProfileDetails()
+      const profileJwt = await window.localFirstAuth.getProfileDetails()
 
       const response = await fetch(`/api/game/${gameId}/start`, {
         method: 'POST',
@@ -124,7 +124,7 @@ export function Game() {
     }
   }
   
-  // If no IRL Browser and onboarding is needed, show DesktopView with onboarding option
+  // If no Local First Auth and onboarding is needed, show DesktopView with onboarding option
   if (showOnboarding) {
     return (
       <>
@@ -134,7 +134,7 @@ export function Game() {
           onStartGame={handleStartGame}
         />
 
-        {/* Floating "Join Game" button for users without IRL Browser */}
+        {/* Floating "Join Game" button for users without Local First Auth */}
         <button
           onClick={() => setShowOnboardingModal(true)}
           className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-rose-800 text-white px-8 py-4 rounded-full shadow-lg hover:bg-rose-900 transition-all hover:scale-105 font-semibold text-lg z-40"
@@ -152,7 +152,7 @@ export function Game() {
             />
             {/* Modal content */}
             <div className="relative z-10 w-full max-w-lg mx-4 max-h-[90vh] overflow-auto rounded-2xl shadow-2xl">
-              <IrlOnboarding
+              <Onboarding
                 mode="choice"
                 skipSocialStep={true}
                 onComplete={handleOnboardingComplete}

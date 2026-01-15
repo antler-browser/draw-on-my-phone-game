@@ -45,9 +45,9 @@ importers:
       '@internal/shared':
         specifier: workspace:*
         version: link:../shared
-      irl-browser-onboarding:
-        specifier: ^1.3.0
-        version: 1.3.0(react@19.2.1)
+      local-first-auth:
+        specifier: ^1.4.1
+        version: 1.4.1(react@19.2.1)
       qrcode.react:
         specifier: ^4.2.0
         version: 4.2.0(react@19.2.1)
@@ -85,9 +85,9 @@ importers:
       autoprefixer:
         specifier: ^10.4.22
         version: 10.4.22(postcss@8.5.6)
-      irl-browser-simulator:
-        specifier: ^1.1.2
-        version: 1.1.2
+      local-first-auth-simulator:
+        specifier: ^1.4.1
+        version: 1.4.1
       postcss:
         specifier: ^8.5.6
         version: 8.5.6
@@ -2133,18 +2133,6 @@ packages:
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
 
-  irl-browser-onboarding@1.3.0:
-    resolution: {integrity: sha512-Jvyfge+g8ZDBY14GhmiQ9cFyngV49dcCndHzAILWP20tDGr+sF0NI93nbCC6JwNg6F05Db/1sKuCSNu+H6z7qQ==}
-    peerDependencies:
-      react: ^18.0.0 || ^19.0.0
-    peerDependenciesMeta:
-      react:
-        optional: true
-
-  irl-browser-simulator@1.1.2:
-    resolution: {integrity: sha512-d85hbzyAWlKz/TYkt4TJSmMvm+jALici0upytZj3keauJVsjJMcOfqk3hv4KXTiDUhD3VdyC+h5OgK6KgX4KlQ==}
-    engines: {node: '>=20.0.0'}
-
   is-arrayish@0.3.4:
     resolution: {integrity: sha512-m6UrgzFVUYawGBh1dUsWR5M2Clqic9RVXC/9f8ceNlv2IcO9j9J/z8UoCLPqtsPBFNzEpfR3xftohbfqDx8EQA==}
 
@@ -2296,6 +2284,18 @@ packages:
   lightningcss@1.30.2:
     resolution: {integrity: sha512-utfs7Pr5uJyyvDETitgsaqSyjCb2qNRAtuqUeWIAKztsOYdcACf2KtARYXg2pSvhkt+9NfoaNY7fxjl6nuMjIQ==}
     engines: {node: '>= 12.0.0'}
+
+  local-first-auth-simulator@1.4.1:
+    resolution: {integrity: sha512-snqAtrq90RXRil6p1Gej8WtdOFyodcdaG7X8N+PW25DntlPWzkLPVqt+VFsMM2F51vs5f8k/qskJM+qUXbjy6A==}
+    engines: {node: '>=20.0.0'}
+
+  local-first-auth@1.4.1:
+    resolution: {integrity: sha512-5/kAi9JynQOh064qjiJL2Isyj/QDc9hqi2h96GhTFSZcPUDA0HUrV/HMeeXTkGzv0sBbd9lFAxFylvuyEDTr/g==}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   loglevel@1.9.2:
     resolution: {integrity: sha512-HgMmCqIJSAKqo68l0rS2AanEWfkxaZ5wNiEFb5ggm08lDs9Xl2KxBlX3PTcaD2chBM1gXAYf491/M2Rv8Jwayg==}
@@ -4781,20 +4781,6 @@ snapshots:
 
   inherits@2.0.4: {}
 
-  irl-browser-onboarding@1.3.0(react@19.2.1):
-    dependencies:
-      '@stablelib/ed25519': 1.0.3
-      base58-universal: 2.0.0
-      base64-js: 1.5.1
-    optionalDependencies:
-      react: 19.2.1
-
-  irl-browser-simulator@1.1.2:
-    dependencies:
-      '@stablelib/ed25519': 1.0.3
-      base58-universal: 2.0.0
-      base64-js: 1.5.1
-
   is-arrayish@0.3.4: {}
 
   is-docker@3.0.0: {}
@@ -4904,6 +4890,20 @@ snapshots:
       lightningcss-linux-x64-musl: 1.30.2
       lightningcss-win32-arm64-msvc: 1.30.2
       lightningcss-win32-x64-msvc: 1.30.2
+
+  local-first-auth-simulator@1.4.1:
+    dependencies:
+      '@stablelib/ed25519': 1.0.3
+      base58-universal: 2.0.0
+      base64-js: 1.5.1
+
+  local-first-auth@1.4.1(react@19.2.1):
+    dependencies:
+      '@stablelib/ed25519': 1.0.3
+      base58-universal: 2.0.0
+      base64-js: 1.5.1
+    optionalDependencies:
+      react: 19.2.1
 
   loglevel@1.9.2: {}
 

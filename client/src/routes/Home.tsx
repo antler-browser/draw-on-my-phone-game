@@ -3,12 +3,12 @@ import { useNavigate } from 'react-router-dom'
 import { CreateGame } from '../components/CreateGame'
 
 export function Home() {
-  const [isIRLBrowser, setIsIRLBrowser] = useState(false)
+  const [isLocalFirstAuth, setIsLocalFirstAuth] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
-    // Check if running in an IRL Browser
-    setIsIRLBrowser(!!window.irlBrowser)
+    // Check if running in a Local First Auth app
+    setIsLocalFirstAuth(!!window.localFirstAuth)
   }, [])
 
   const handleCreateGame = async (timerDuration: number) => {
@@ -39,7 +39,7 @@ export function Home() {
   return (
     <CreateGame
       onCreateGame={handleCreateGame}
-      isIRLBrowser={isIRLBrowser}
+      isLocalFirstAuth={isLocalFirstAuth}
     />
   )
 }

@@ -57,7 +57,7 @@ export function WordSelection() {
     setPhase('submitted')
 
     // Fire-and-forget POST to server
-    window.irlBrowser?.getProfileDetails().then(jwt => {
+    window.localFirstAuth?.getProfileDetails().then(jwt => {
       if (!jwt) {
         console.log('No JWT available for submission POST')
         return

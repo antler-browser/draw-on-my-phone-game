@@ -2,10 +2,10 @@ import { useState } from 'react'
 
 interface CreateGameProps {
   onCreateGame: (timerDuration: number) => Promise<void>
-  isIRLBrowser: boolean
+  isLocalFirstAuth: boolean
 }
 
-export function CreateGame({ onCreateGame, isIRLBrowser }: CreateGameProps) {
+export function CreateGame({ onCreateGame, isLocalFirstAuth }: CreateGameProps) {
   const [timerDuration, setTimerDuration] = useState(60)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

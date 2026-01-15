@@ -253,7 +253,7 @@ export const useGameStore = create<GameStore>()(
 
             const timeoutId = window.setTimeout(async () => {
               set({ reconnectAttempt: attempt + 1 })
-              // Re-issue join + connect using IRL Browser API directly
+              // Re-issue join + connect using Local First Auth API directly
               await get().joinAndConnect(gameId, baseUrl)
             }, backoffMs)
 
@@ -292,13 +292,13 @@ export const useGameStore = create<GameStore>()(
         set({ connectionStatus: 'joining' })
 
         try {
-          if (!window.irlBrowser) {
-            throw new Error('IRL Browser not available')
+          if (!window.localFirstAuth) {
+            throw new Error('Local First Auth not available')
           }
 
           // Step 1: REST join FIRST
-          const profileJwt = await window.irlBrowser.getProfileDetails()
-          const avatarJwt = await window.irlBrowser.getAvatar()
+          const profileJwt = await window.localFirstAuth.getProfileDetails()
+          const avatarJwt = await window.localFirstAuth.getAvatar()
 
           const response = await fetch(`${baseUrl}/api/game/${gameId}/join`, {
             method: 'POST',
